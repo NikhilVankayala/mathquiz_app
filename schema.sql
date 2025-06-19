@@ -13,7 +13,8 @@ CREATE TABLE users (
 CREATE TABLE topics (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
-    grade_level INT CHECK (grade_level BETWEEN 9 AND 12)
+    grade_level INT CHECK (grade_level BETWEEN 9 AND 12),
+    is_cumulative BOOLEAN DEFAULT FALSE
 );
 
 
@@ -36,7 +37,6 @@ CREATE TABLE questions (
 CREATE TABLE quizzes (
     id INT AUTO_INCREMENT PRIMARY KEY,
     topic_id INT,
-    is_cumulative BOOLEAN DEFAULT FALSE,
     grade_level INT CHECK (grade_level BETWEEN 9 AND 12),
     time_limit INT,  -- in seconds
     FOREIGN KEY (topic_id) REFERENCES topics(id)
