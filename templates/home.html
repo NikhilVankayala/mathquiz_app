@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>MathZen - Welcome</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <nav class="navbar">
+    <div class="nav-left">
+      <a href="/">HOME</a>
+    </div>
+    <div class="nav-right">
+      <a href="/login">SIGN IN</a>
+    </div>
+  </nav>
+
+  <div class="welcome-container">
+    <h1>Welcome to <span class="highlight">MathZen</span></h1>
+    <p>Practice math skills for Grades 9-12</p>
+    <a href="/signup" class="btn">Get Started</a>
+    <p class="signin-link">If already a member <a href="/login">sign in</a></p>
+  </div>
+</body>
+</html>
+
