@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Quiz</title>
+  <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+  <script id="MathJax-script" async
+          src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+  <style>
+    body {
+      background-color: #3b75b6;
+      font-family: Arial, sans-serif;
+      margin: 0;
+      color: white;
+    }
+
+    .navbar {
+      background-color: orange;
+      padding: 15px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .navbar a {
+      color: white;
+      text-decoration: none;
+      font-weight: bold;
+      margin: 0 10px;
+    }
+
+    .quiz-container {
+      display: flex;
+      flex-direction: column;
+      padding: 40px;
+      text-align: center;
+    }
+
+    .question-text {
+      font-size: 24px;
+      margin-bottom: 30px;
+    }
+
+    .options-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 30px;
+      justify-items: center;
+      margin-bottom: 40px;
+    }
+
+    .option {
+      background-color: orange;
+      color: black;
+      padding: 15px;
+      border-radius: 10px;
+      font-weight: bold;
+      cursor: pointer;
+      width: 200px;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .option input {
+      margin-right: 8px;
+    }
+
+    .nav-buttons {
+      text-align: center;
+    }
+
+    .nav-buttons button {
+      margin: 0 10px;
+      padding: 10px 20px;
+      font-size: 16px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+
+    .nav-buttons .prev,
+    .nav-buttons .next {
+      background-color: gray;
+      color: white;
+    }
+
+    .nav-buttons .submit {
+      background-color: #28a745;
+      color: white;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="navbar">
+    <div><a href="/">HOME</a> <a href="/dashboard">DASHBOARD</a></div>
+    <div><a href="/logout">SIGN OUT</a></div>
+  </div>
+
+  <form method="POST" action="/quiz/{{ topic_id }}?q={{ q_index }}">
+    <div class="quiz-container">
+
+      <div class="question-text">
+        Q{{ question_number + 1 }}:
+        {% if '\\' in question.question_text %}
+          {{ question.question_text | safe }}
+        {% else %}
+          {{ question.question_text }}
+        {% endif %}
+      </div>
+
+      <div class="options-grid">
+        <label class="option">
+          <input type="radio" name="option" value="A" required>
+          {{ question.option_a }}
+        </label>
+
+        <label class="option">
+          <input type="radio" name="option" value="B">
+          {{ question.option_b }}
+        </label>
+
+        <label class="option">
+          <input type="radio" name="option" value="C">
+          {{ question.option_c }}
+        </label>
+
+        <label class="option">
+          <input type="radio" name="option" value="D">
+          {{ question.option_d }}
+        </label>
+      </div>
+
+      <div class="nav-buttons">
+        {% if question_number > 0 %}
+          <button type="submit" name="action" value="prev" class="prev">Previous</button>
+        {% endif %}
+
+        {% if question_number < total_questions - 1 %}
+          <button type="submit" name="action" value="next" class="next">Next</button>
+        {% else %}
+          <button type="submit" name="action" value="submit" class="submit">Submit</button>
+        {% endif %}
+      </div>
+
+    </div>
+  </form>
+
+</body>
+</html>
+
+
+
+

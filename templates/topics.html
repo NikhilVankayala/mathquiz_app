@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Topics for Grade {{ grade }}</title>
+  <style>
+    body {
+      background-color: #3b75b6;
+      font-family: Arial, sans-serif;
+      color: white;
+      text-align: center;
+      margin: 0;
+      padding: 0;
+    }
+
+    .navbar {
+      background-color: orange;
+      padding: 15px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .nav-left, .nav-right {
+      display: flex;
+      gap: 20px;
+    }
+
+    .nav-left a, .nav-right a {
+      color: white;
+      text-decoration: none;
+      font-weight: bold;
+    }
+
+    .nav-left a:hover, .nav-right a:hover {
+      text-decoration: underline;
+    }
+
+    h1 {
+      margin-top: 30px;
+    }
+
+    .topic-box {
+      background-color: orange;
+      margin: 20px auto;
+      width: 300px;
+      padding: 20px;
+      border-radius: 10px;
+      font-size: 20px;
+    }
+
+    .topic-box a {
+      color: black;
+      text-decoration: none;
+    }
+
+    .topic-box a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <!-- Navigation Bar -->
+  <div class="navbar">
+    <div class="nav-left">
+      <a href="/">HOME</a>
+      <a href="/dashboard">DASHBOARD</a>
+    </div>
+    <div class="nav-right">
+      <a href="/logout">SIGN OUT</a>
+    </div>
+  </div>
+
+  <h1>Topics for Grade {{ grade }}</h1>
+
+  {% for topic in topics %}
+    <div class="topic-box">
+      <a href="/quiz/{{ topic.id }}">{{ topic.name }}</a>
+    </div>
+  {% endfor %}
+</body>
+</html>

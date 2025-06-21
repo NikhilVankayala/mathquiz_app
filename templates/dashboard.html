@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Dashboard</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <nav class="navbar">
+    <div class="nav-left">
+      <a href="/">HOME</a>
+      <a href="/dashboard">DASHBOARD</a>
+    </div>
+    <div class="nav-right">
+      <a href="/logout">SIGN OUT</a>
+    </div>
+  </nav>
+
+  <h2 class="welcome">Hi {{ username }}, welcome back! You are in grade {{grade_level}}</h2>
+
+  <div class="grade-grid">
+    {% for grade in range(9, 13) %}
+      {% set accessible = grade_level == 12 or grade_level == grade %}
+      <div class="grade-card {% if not accessible %}disabled{% endif %}">
+        {% if accessible %}
+          <a href="/topics/{{ grade }}">GRADE {{ grade }}</a>
+        {% else %}
+          <span>GRADE {{ grade }}</span>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </div>
+</body>
+</html>
+
