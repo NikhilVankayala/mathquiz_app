@@ -95,7 +95,7 @@ INSERT INTO questions (
     correct_option, qtype, explanation
 ) VALUES (
     1, 'True or False: The equation 2x + 5 = 5 + 2x has no solution.',
-    NULL, NULL, NULL, NULL,
+    'True', 'False', NULL, NULL,
     'F', 'TF', 'The equation simplifies to 2x = 2x, which is always true — infinite solutions.'
 );
 
@@ -113,7 +113,7 @@ INSERT INTO questions (
     correct_option, qtype, explanation
 ) VALUES (
     1, 'True or False: The solution to 6x + 2 = 4x + 10 is x = 4.',
-    NULL, NULL, NULL, NULL,
+    'True', 'False', NULL, NULL,
     'T', 'TF', 'Subtract 4x and 2: 2x = 8, x = 4. The statement is true.'
 );
 
@@ -169,7 +169,7 @@ INSERT INTO questions (
     correct_option, qtype, explanation
 ) VALUES (
     2, 'True or False: The slope of a horizontal line is zero.',
-    NULL, NULL, NULL, NULL,
+    'True', 'False', NULL, NULL,
     'T', 'TF', 'Horizontal lines have no vertical change, so slope = 0.'
 );
 
@@ -196,7 +196,7 @@ INSERT INTO questions (
     correct_option, qtype, explanation
 ) VALUES (
     2, 'True or False: The line y = -4 has an undefined slope.',
-    NULL, NULL, NULL, NULL,
+   'True', 'False', NULL, NULL,
     'F', 'TF', 'y = -4 is a horizontal line, so its slope is 0 — not undefined.'
 );
 
@@ -232,7 +232,7 @@ INSERT INTO questions (
     correct_option, qtype, explanation
 ) VALUES (
     2, 'True or False: The graph of y = 2x + 3 is a straight line.',
-    NULL, NULL, NULL, NULL,
+    'True', 'False', NULL, NULL,
     'T', 'TF', 'Linear equations like y = mx + b always graph as straight lines.'
 );
 
@@ -245,7 +245,7 @@ INSERT INTO questions (
  'A', 'MCQ', 'Graph both lines; they intersect at \\( (1, 3) \\).'),
 
 (3, 'True or False: A system with parallel lines has no solution.',
- NULL, NULL, NULL, NULL,
+ 'True', 'False', NULL, NULL,
  'T', 'TF', 'Parallel lines never intersect, so the system has no solution.'),
 
 (3, 'Solve by substitution: \\( y = x + 3 \\) and \\( 2x + y = 9 \\).',
@@ -257,7 +257,7 @@ INSERT INTO questions (
  'A', 'MCQ', 'Add the equations: \\( 3x + 2y + 2x - 2y = 16 + 6 \\Rightarrow 5x = 22 \\Rightarrow x = \\frac{22}{5} \\approx 4.4 \\).'),
 
 (3, 'True or False: The system \\( x + y = 4 \\) and \\( 2x + 2y = 8 \\) has infinite solutions.',
- NULL, NULL, NULL, NULL,
+ 'True', 'False', NULL, NULL,
  'T', 'TF', 'The second equation is a multiple of the first, so there are infinite solutions.'),
 
 (3, 'Which method is best to solve: \\( x = 3y + 2 \\) and \\( 2x - y = 5 \\)?',
@@ -273,7 +273,7 @@ INSERT INTO questions (
  'B', 'MCQ', 'The lines have the same slope but different y-intercepts, so they are parallel with no solution.'),
 
 (3, 'True or False: Systems with coincident lines have exactly one solution.',
- NULL, NULL, NULL, NULL,
+ 'True', 'False', NULL, NULL,
  'F', 'TF', 'Coincident lines have infinitely many solutions, not just one.'),
 
 (3, 'Solve by substitution: \\( y = 4x - 7 \\) and \\( 3x + y = 8 \\).',
@@ -290,7 +290,7 @@ INSERT INTO questions (
  'A', 'MCQ', 'The factors of 6 that add to 5 are 2 and 3: \\( (x + 2)(x + 3) \\).'),
 
 (4, 'True or False: The quadratic \\( x^2 + 4x + 5 \\) is factorable over the integers.',
- NULL, NULL, NULL, NULL,
+ 'True', 'False', NULL, NULL,
  'F', 'TF', 'Discriminant is \\( 4^2 - 4 \\cdot 1 \\cdot 5 = -4 \\), so no real factors.'),
 
 (4, 'Factor completely: \\( 4x^2 - 9 \\)',
@@ -302,7 +302,7 @@ INSERT INTO questions (
  'A', 'MCQ', 'Perfect square trinomial: \\( x^2 - 2ab + b^2 = (x - 8)^2 \\).'),
 
 (4, 'True or False: \\( x^2 + 2x + 1 \\) is a perfect square trinomial.',
- NULL, NULL, NULL, NULL,
+ 'True', 'False', NULL, NULL,
  'T', 'TF', 'It factors as \\( (x + 1)^2 \\).'),
 
 (4, 'Factor: \\( 6x^2 + 11x + 3 \\)',
@@ -318,7 +318,7 @@ INSERT INTO questions (
  'A', 'MCQ', '10 = 2 \\cdot 5 and 2 + 5 = 7 → \\( (x + 2)(x + 5) \\).'),
 
 (4, 'True or False: The expression \\( x^2 - 4 \\) is a difference of squares.',
- NULL, NULL, NULL, NULL,
+ 'True', 'False', NULL, NULL,
  'T', 'TF', 'It factors as \\( (x - 2)(x + 2) \\).'),
 
 (4, 'Factor: \\( 9x^2 + 12x + 4 \\)',
@@ -345,7 +345,7 @@ INSERT INTO questions (
 ) VALUES (
     5,
     'True or False: The quadratic formula is \\( x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a} \\)',
-    NULL, NULL, NULL, NULL,
+    'True', 'False', NULL, NULL,
     'T', 'TF',
     'This is the standard quadratic formula used to solve \\( ax^2 + bx + c = 0 \\).'
 );
@@ -389,7 +389,7 @@ INSERT INTO questions (
 ) VALUES (
     5,
     'True or False: If the discriminant \\( b^2 - 4ac \\) is negative, the equation has no real solutions.',
-    NULL, NULL, NULL, NULL,
+    'True', 'False', NULL, NULL,
     'T', 'TF',
     'A negative discriminant means the square root is imaginary, so no real roots exist.'
 );
@@ -433,7 +433,7 @@ INSERT INTO questions (
 ) VALUES (
     5,
     'True or False: The equation \\( x^2 + 2x + 2 = 0 \\) has imaginary roots.',
-    NULL, NULL, NULL, NULL,
+    'True', 'False', NULL, NULL,
     'T', 'TF',
     'Discriminant is \\( 4 - 8 = -4 \\), so roots are imaginary.'
 );
@@ -457,7 +457,7 @@ INSERT INTO questions (
 ) VALUES (
     6,
     'True or False: \\( a^0 = 1 \\), where \\( a \\neq 0 \\).',
-    NULL, NULL, NULL, NULL,
+    'True', 'False', NULL, NULL,
     'T', 'TF',
     'Any non-zero number raised to the power of 0 is 1.'
 );
@@ -490,7 +490,7 @@ INSERT INTO questions (
 ) VALUES (
     6,
     'True or False: \\( x^{-3} = \\frac{1}{x^3} \\)',
-    NULL, NULL, NULL, NULL,
+    'True', 'False', NULL, NULL,
     'T', 'TF',
     'Negative exponents represent reciprocals: \\( x^{-n} = \\frac{1}{x^n} \\).'
 );
@@ -534,7 +534,7 @@ INSERT INTO questions (
 ) VALUES (
     6,
     'True or False: \\( \\frac{1}{x^{-4}} = x^4 \\)',
-    NULL, NULL, NULL, NULL,
+    'True', 'False', NULL, NULL,
     'T', 'TF',
     'Take reciprocal of negative exponent: \\( \\frac{1}{x^{-4}} = x^4 \\).'
 );
@@ -561,7 +561,7 @@ INSERT INTO questions (
  'B', 'MCQ', 'Substitute: \\( f(4) = 3 \\cdot 4 + 2 = 12 + 2 = 14 \\).'),
 
 (7, 'True or False: \\( f(x) = x^2 \\) and \\( f(3) = 9 \\).',
- NULL, NULL, NULL, NULL,
+ 'True', 'False', NULL, NULL,
  'T', 'TF', 'Substitute \\( x = 3 \\): \\( 3^2 = 9 \\).'),
 
 (7, 'Given \\( g(x) = 2x - 5 \\), what is \\( g(-2) \\)?',
@@ -573,7 +573,7 @@ INSERT INTO questions (
  'A', 'MCQ', 'Plug in \\( x = 2 \\): \\( 4 - 8 + 7 = 3 \\).'),
 
 (7, 'True or False: If \\( f(x) = 5x \\), then \\( f(a + b) = 5a + 5b \\).',
- NULL, NULL, NULL, NULL,
+ 'True', 'False', NULL, NULL,
  'T', 'TF', 'Function distributes over addition: \\( f(a + b) = 5(a + b) = 5a + 5b \\).'),
 
 (7, 'If \\( f(x) = x^2 \\), which of the following is \\( f(3) + f(4) \\)?',
@@ -585,7 +585,7 @@ INSERT INTO questions (
  'C', 'MCQ', 'Set \\( 2x - 1 = 9 \\Rightarrow 2x = 10 \\Rightarrow x = 5 \\).'),
 
 (7, 'True or False: \\( f(x) = x^2 \\) is a linear function.',
- NULL, NULL, NULL, NULL,
+ 'True', 'False', NULL, NULL,
  'F', 'TF', 'It is quadratic because of the square term.'),
 
 (7, 'What is the domain of \\( f(x) = \\frac{1}{x - 2} \\)?',
@@ -608,7 +608,7 @@ INSERT INTO questions (
  'B', 'MCQ', 'The sum of interior angles in any triangle is always 180°.'),
 
 (8, 'True or False: Vertical angles are always congruent.',
- NULL, NULL, NULL, NULL,
+ 'True', 'False', NULL, NULL,
  'T', 'TF', 'Vertical angles (formed by intersecting lines) are always equal.'),
 
 (8, 'Which of the following pairs of angles are supplementary?',
@@ -620,7 +620,7 @@ INSERT INTO questions (
  'C', 'MCQ', 'Parallel lines lie in the same plane and never intersect.'),
 
 (8, 'True or False: A line has one endpoint.',
- NULL, NULL, NULL, NULL,
+ 'True', 'False', NULL, NULL,
  'F', 'TF', 'A line extends infinitely in both directions. A ray has one endpoint.'),
 
 (8, 'What is the measure of each angle in an equilateral triangle?',
@@ -632,7 +632,7 @@ INSERT INTO questions (
  'C', 'MCQ', 'A line has one dimension: length.'),
 
 (8, 'True or False: A point has no dimensions.',
- NULL, NULL, NULL, NULL,
+ 'True', 'False', NULL, NULL,
  'T', 'TF', 'A point is a location and has no size, area, or dimension.'),
 
 (8, 'If two angles form a linear pair and one is 70°, what is the other?',
@@ -654,7 +654,7 @@ INSERT INTO questions (
  'A', 'MCQ', 'SSS (Side-Side-Side) proves triangle congruence when all three sides match.'),
 
 (9, 'True or False: The AA (Angle-Angle) criterion proves triangle congruence.',
- NULL, NULL, NULL, NULL,
+ 'True', 'False', NULL, NULL,
  'F', 'TF', 'AA proves similarity, not congruence.'),
 
 (9, 'If two triangles have two sides and the included angle congruent, which postulate applies?',
@@ -666,7 +666,7 @@ INSERT INTO questions (
  'D', 'MCQ', 'All of these (SSS, AA, SAS) are valid for triangle similarity.'),
 
 (9, 'True or False: Triangles that are similar must also be congruent.',
- NULL, NULL, NULL, NULL,
+ 'True', 'False', NULL, NULL,
  'F', 'TF', 'Similar triangles have the same shape but not necessarily the same size.'),
 
 (9, 'If two triangles are similar by AA, what can be said about their corresponding sides?',
@@ -678,7 +678,7 @@ INSERT INTO questions (
  'C', 'MCQ', 'SSA (Side-Side-Angle) is not a valid congruence postulate.'),
 
 (9, 'True or False: In triangle congruence, the order of letters matters when naming corresponding parts.',
- NULL, NULL, NULL, NULL,
+ 'True', 'False', NULL, NULL,
  'T', 'TF', 'Corresponding parts must match in order (e.g., \\( \\triangle ABC \\cong \\triangle DEF \\)).'),
 
 (9, 'Which method can be used to prove \\( \\triangle ABC \\sim \\triangle DEF \\) if \\( \\angle A = \\angle D \\) and \\( \\angle B = \\angle E \\)?',
@@ -715,7 +715,7 @@ INSERT INTO questions (
  'A', 'MCQ', 'Two-column proofs consist of Statements and their corresponding Justifications.'),
 
 (11, 'True or False: The Reflexive Property states that any geometric object is equal to itself.',
- NULL, NULL, NULL, NULL,
+ 'True', 'False', NULL, NULL,
  'T', 'TF', 'The Reflexive Property says \\( a = a \\), useful in proofs for shared sides or angles.'),
 
 (11, 'Which property justifies: If \\( a = b \\) and \\( b = c \\), then \\( a = c \\)?',
@@ -727,7 +727,7 @@ INSERT INTO questions (
  'C', 'MCQ', 'Paragraph proofs use complete sentences to logically connect statements.'),
 
 (11, 'True or False: Given \\( \angle A = \angle B \\), the symmetric property lets us write \\( \angle B = \angle A \\).',
- NULL, NULL, NULL, NULL,
+ 'True', 'False', NULL, NULL,
  'T', 'TF', 'The symmetric property allows the equality to be flipped.'),
 
 (11, 'Which of the following is always included in a geometric proof?',
@@ -739,7 +739,7 @@ INSERT INTO questions (
  'C', 'MCQ', 'This is a direct application of the Transitive Property.'),
 
 (11, 'True or False: A proof must always include a diagram.',
- NULL, NULL, NULL, NULL,
+ 'True', 'False', NULL, NULL,
  'F', 'TF', 'Diagrams are helpful but not required for a valid proof.'),
 
 (11, 'Which step in a proof comes immediately after stating a theorem or postulate?',
