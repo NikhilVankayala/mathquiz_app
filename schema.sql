@@ -42,16 +42,6 @@ CREATE TABLE quizzes (
     FOREIGN KEY (topic_id) REFERENCES topics(id)
 );
 
-CREATE TABLE user_answers (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    quiz_result_id INT NOT NULL,
-    question_id INT NOT NULL,
-    user_answer CHAR(1),
-    is_correct BOOLEAN,
-    FOREIGN KEY (quiz_result_id) REFERENCES quiz_results(id),
-    FOREIGN KEY (question_id) REFERENCES questions(id)
-);
-
 CREATE TABLE quiz_results (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
