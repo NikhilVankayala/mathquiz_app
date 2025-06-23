@@ -42,19 +42,33 @@
     .topic-box {
       background-color: orange;
       margin: 20px auto;
-      width: 300px;
+      width: 320px;
       padding: 20px;
       border-radius: 10px;
-      font-size: 20px;
+      font-size: 18px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
     }
 
-    .topic-box a {
-      color: black;
+    .topic-box a.button {
+      display: inline-block;
+      margin-top: 10px;
+      padding: 8px 16px;
+      background-color: #004080;
+      color: white;
+      border-radius: 5px;
       text-decoration: none;
+      font-weight: bold;
     }
 
-    .topic-box a:hover {
-      text-decoration: underline;
+    .topic-box a.button:hover {
+      background-color: #0059b3;
+    }
+
+    .topic-name {
+      font-size: 20px;
+      font-weight: bold;
     }
   </style>
 </head>
@@ -74,8 +88,13 @@
 
   {% for topic in topics %}
     <div class="topic-box">
-      <a href="/quiz/{{ topic.id }}">{{ topic.name }}</a>
+      <div class="topic-name">{{ topic.name }}</div>
+      <a href="/quiz/{{ topic.id }}" class="button">Start Quiz</a>
+      {% if topic.id in attempted_topic_ids %}
+        <a href="/attempts/{{ topic.id }}" class="button">Past Attempts</a>
+      {% endif %}
     </div>
   {% endfor %}
 </body>
 </html>
+
