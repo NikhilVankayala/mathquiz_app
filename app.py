@@ -95,25 +95,58 @@ def dashboard():
 def topics(grade):
     if 'user_id' not in session:
         return redirect('/login')
+
     user_id = session['user_id']
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
-    
-    cursor.execute('SELECT * FROM topics where grade_level = %s',(grade,))
+
+    # Get all topics for this grade
+    cursor.execute("SELECT * FROM topics WHERE grade_level = %s", (grade,))
     topics = cursor.fetchall()
 
+    # Fetch all submitted quiz results for this user
     cursor.execute("""
-        SELECT DISTINCT q.topic_id
+        SELECT qr.score, q.topic_id
         FROM quiz_results qr
         JOIN quizzes q ON qr.quiz_id = q.id
         WHERE qr.user_id = %s AND qr.status = 'submitted'
     """, (user_id,))
-    attempted_topic_ids = {row['topic_id'] for row in cursor.fetchall()}
+    quiz_data = cursor.fetchall()
+
+    # Track scores per topic
+    topic_scores = {}
+    attempted_topic_ids = set()
+
+    for row in quiz_data:
+        topic_id = row['topic_id']
+        score = row['score']
+        attempted_topic_ids.add(topic_id)
+
+        if topic_id not in topic_scores:
+            topic_scores[topic_id] = []
+        topic_scores[topic_id].append(score)
+
+    # Add completion and attempt status to each topic
+    for topic in topics:
+        tid = topic['id']
+        scores = topic_scores.get(tid, [])
+        topic['attempted'] = tid in attempted_topic_ids
+        topic['completed'] = any(s >= 8 for s in scores)
+
+    # Check if user has completed all topics in this grade
+    all_completed = all(topic['completed'] for topic in topics) if topics else False
 
     cursor.close()
     conn.close()
 
-    return render_template('topics.html', topics=topics, grade=grade, attempted_topic_ids=attempted_topic_ids)
+    return render_template(
+        'topics.html',
+        topics=topics,
+        grade=grade,
+        attempted_topic_ids=attempted_topic_ids,
+        all_completed=all_completed
+    )
+
 @app.route('/quiz/<int:topic_id>', methods=['GET', 'POST'])
 def quiz(topic_id):
     if 'user_id' not in session:
@@ -369,6 +402,12 @@ def past_attempts(topic_id):
     return render_template('past_attempts.html',
                            topic=topic,
                            attempts=all_attempt_data)
+
+@app.route('/logout')
+def logout():
+    session.clear()  
+    flash('You have been signed out.', 'info')  
+    return redirect('/login')  
 
 
 
