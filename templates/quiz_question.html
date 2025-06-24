@@ -98,9 +98,13 @@
     <div><a href="/logout">SIGN OUT</a></div>
   </div>
 
+  <!-- Countdown Timer BELOW the navbar -->
+  <div id="countdown" style="text-align: center; font-size: 24px; font-weight: bold; color: orange; margin-top: 15px;">
+    Time Left: <span id="time">{{ "%02d:%02d" | format(time_left // 60, time_left % 60) }}</span>
+  </div>
+
   <form method="POST" action="/quiz/{{ topic_id }}?q={{ q_index }}">
     <div class="quiz-container">
-
       <div class="question-text">
         Q{{ question_number + 1 }}:
         {% if '\\' in question.question_text %}
@@ -112,22 +116,22 @@
 
       <div class="options-grid">
         <label class="option">
-          <input type="radio" name="option" value="A" required>
+          <input type="radio" name="option" value="A" {% if question.user_option == 'A' %}checked{% endif %}>
           {{ question.option_a }}
         </label>
 
         <label class="option">
-          <input type="radio" name="option" value="B">
+          <input type="radio" name="option" value="B" {% if question.user_option == 'B' %}checked{% endif %}>
           {{ question.option_b }}
         </label>
 
         <label class="option">
-          <input type="radio" name="option" value="C">
+          <input type="radio" name="option" value="C" {% if question.user_option == 'C' %}checked{% endif %}>
           {{ question.option_c }}
         </label>
 
         <label class="option">
-          <input type="radio" name="option" value="D">
+          <input type="radio" name="option" value="D" {% if question.user_option == 'D' %}checked{% endif %}>
           {{ question.option_d }}
         </label>
       </div>
@@ -143,11 +147,42 @@
           <button type="submit" name="action" value="submit" class="submit">Submit</button>
         {% endif %}
       </div>
-
     </div>
   </form>
 
+  <script>
+    let totalTime = {{ time_left | default(180) | int }};
+  const timer = document.getElementById("time");
+
+  function updateTimer() {
+    const minutes = Math.floor(totalTime / 60);
+    const seconds = totalTime % 60;
+    timer.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+
+    if (totalTime > 0) {
+      totalTime--;
+    } else {
+      clearInterval(interval);
+
+      // Auto-move to next or submit
+      const form = document.querySelector("form");
+      const isLast = document.querySelector('button[name="action"][value="submit"]');
+
+      let input = document.createElement("input");
+      input.type = "hidden";
+      input.name = "action";
+      input.value = isLast ? "submit" : "next";
+
+      form.appendChild(input);
+      form.submit();
+    }
+  }
+
+    const interval = setInterval(updateTimer, 1000);
+  </script>
+
 </body>
+
 </html>
 
 
