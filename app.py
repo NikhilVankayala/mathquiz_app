@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, redirect, session, flash, url_for
 from werkzeug.security import generate_password_hash, check_password_hash
 from models.db import get_connection
+from datetime import datetime
 
 app = Flask(__name__)
 app.secret_key = 'nikhilv30'
@@ -113,7 +114,6 @@ def topics(grade):
     conn.close()
 
     return render_template('topics.html', topics=topics, grade=grade, attempted_topic_ids=attempted_topic_ids)
-
 @app.route('/quiz/<int:topic_id>', methods=['GET', 'POST'])
 def quiz(topic_id):
     if 'user_id' not in session:
@@ -125,6 +125,7 @@ def quiz(topic_id):
     user_id = session['user_id']
     q_index = int(request.args.get('q', 0))
 
+    # Get or create the quiz
     cursor.execute("SELECT id FROM quizzes WHERE topic_id = %s", (topic_id,))
     quiz = cursor.fetchone()
 
@@ -133,41 +134,31 @@ def quiz(topic_id):
         cursor.execute("""
             INSERT INTO quizzes (topic_id, grade_level, time_limit)
             VALUES (%s, %s, %s)
-        """, (topic_id, grade_level, 600))
+        """, (topic_id, grade_level, 600))  # 600 is total quiz time if you want it globally
         conn.commit()
         quiz_id = cursor.lastrowid
     else:
         quiz_id = quiz['id']
 
-    
+    # Get or create the quiz result
     quiz_result_id = session.get('quiz_result_id')
-
     if not quiz_result_id:
-    # Check if a quiz exists for this topic
-        cursor.execute("SELECT id FROM quizzes WHERE topic_id = %s", (topic_id,))
-        quiz = cursor.fetchone()
-
-    if not quiz:
-        grade_level = session['grade_level']
         cursor.execute("""
-            INSERT INTO quizzes (topic_id, grade_level, time_limit)
-            VALUES (%s, %s, %s)
-        """, (topic_id, grade_level, 600))
+            INSERT INTO quiz_results (user_id, quiz_id, status)
+            VALUES (%s, %s, 'in_progress')
+        """, (user_id, quiz_id))
         conn.commit()
-        quiz_id = cursor.lastrowid
-    else:
-        quiz_id = quiz['id']
+        quiz_result_id = cursor.lastrowid
+        session['quiz_result_id'] = quiz_result_id
 
-    # Create new quiz_result entry
-    cursor.execute("""
-        INSERT INTO quiz_results (user_id, quiz_id, status)
-        VALUES (%s, %s, 'in_progress')
-    """, (user_id, quiz_id))
-    conn.commit()
-    quiz_result_id = cursor.lastrowid
-    session['quiz_result_id'] = quiz_result_id
+        cursor.execute("""
+            UPDATE quiz_results
+            SET creation_time = NOW()
+            WHERE id = %s
+        """, (quiz_result_id,))
+        conn.commit()
 
-    # Step 3: Get questions for this topic
+    # Fetch all questions for the topic
     cursor.execute("SELECT * FROM questions WHERE topic_id = %s", (topic_id,))
     questions = cursor.fetchall()
 
@@ -176,42 +167,55 @@ def quiz(topic_id):
         return redirect('/dashboard')
 
     current_question = questions[q_index]
+    question_id = current_question['id']
 
-    # Step 4: Handle form submission
+    # Restore user selection if any
+    cursor.execute("""
+        SELECT user_option FROM question_result
+        WHERE quiz_result_id = %s AND question_id = %s
+    """, (quiz_result_id, question_id))
+    existing_answer = cursor.fetchone()
+    current_question['user_option'] = existing_answer['user_option'] if existing_answer else None
+
+    # Per-question time tracking
+    key = f"question_{question_id}_start"
+    if key not in session:
+        session[key] = datetime.utcnow().isoformat()
+
+    start_time = datetime.fromisoformat(session[key])
+    elapsed = (datetime.utcnow() - start_time).total_seconds()
+    time_left = max(0, 180 - int(elapsed))  # 3 minutes per question
+
+    # Handle form submission
     if request.method == 'POST':
         selected = request.form.get('option')
+        is_correct = selected == current_question['correct_option'] if selected else False
 
-        if selected:
-            is_correct = selected == current_question['correct_option']
+        cursor.execute("""
+            SELECT id FROM question_result
+            WHERE quiz_result_id = %s AND question_id = %s
+        """, (quiz_result_id, question_id))
+        existing = cursor.fetchone()
 
-            # Check if this question already has a result
+        if existing:
             cursor.execute("""
-                SELECT id FROM question_result
-                WHERE quiz_result_id = %s AND question_id = %s
-            """, (quiz_result_id, current_question['id']))
-            existing = cursor.fetchone()
+                UPDATE question_result
+                SET user_option = %s, is_correct = %s
+                WHERE id = %s
+            """, (selected, is_correct, existing['id']))
+        else:
+            cursor.execute("""
+                INSERT INTO question_result (quiz_result_id, question_id, user_option, is_correct)
+                VALUES (%s, %s, %s, %s)
+            """, (quiz_result_id, question_id, selected, is_correct))
+        conn.commit()
 
-            if existing:
-                cursor.execute("""
-                    UPDATE question_result
-                    SET user_option = %s, is_correct = %s
-                    WHERE id = %s
-                """, (selected, is_correct, existing['id']))
-            else:
-                cursor.execute("""
-                    INSERT INTO question_result (quiz_result_id, question_id, user_option, is_correct)
-                    VALUES (%s, %s, %s, %s)
-                """, (quiz_result_id, current_question['id'], selected, is_correct))
-            conn.commit()
-
-        # Navigation logic
         action = request.form.get('action')
         if action == "next":
             return redirect(url_for('quiz', topic_id=topic_id, q=q_index + 1))
         elif action == "prev" and q_index > 0:
             return redirect(url_for('quiz', topic_id=topic_id, q=q_index - 1))
         elif action == "submit":
-            # Calculate score and mark quiz as submitted
             cursor.execute("""
                 SELECT COUNT(*) AS correct FROM question_result
                 WHERE quiz_result_id = %s AND is_correct = TRUE
@@ -220,7 +224,9 @@ def quiz(topic_id):
 
             cursor.execute("""
                 UPDATE quiz_results
-                SET score = %s, status = 'submitted'
+                SET score = %s,
+                    status = 'submitted',
+                    time_taken = TIMESTAMPDIFF(SECOND, creation_time, NOW())
                 WHERE id = %s
             """, (score, quiz_result_id))
             conn.commit()
@@ -236,7 +242,8 @@ def quiz(topic_id):
                            question_number=q_index,
                            q_index=q_index,
                            total_questions=len(questions),
-                           topic_id=topic_id)
+                           topic_id=topic_id,
+                           time_left=time_left)
 
 
 @app.route('/result/<int:result_id>')
