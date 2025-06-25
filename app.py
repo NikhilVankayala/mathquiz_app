@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, redirect, session, flash, url_for
 from werkzeug.security import generate_password_hash, check_password_hash
 from models.db import get_connection
-from datetime import datetime
+from datetime import datetime, timezone
 
 app = Flask(__name__)
 app.secret_key = 'nikhilv30'
@@ -154,11 +154,9 @@ def quiz(topic_id):
 
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
-
     user_id = session['user_id']
     q_index = int(request.args.get('q', 0))
 
-    # Get or create the quiz
     cursor.execute("SELECT id FROM quizzes WHERE topic_id = %s", (topic_id,))
     quiz = cursor.fetchone()
 
@@ -167,14 +165,15 @@ def quiz(topic_id):
         cursor.execute("""
             INSERT INTO quizzes (topic_id, grade_level, time_limit)
             VALUES (%s, %s, %s)
-        """, (topic_id, grade_level, 600))  # 600 is total quiz time if you want it globally
+        """, (topic_id, grade_level, 600))
         conn.commit()
         quiz_id = cursor.lastrowid
     else:
         quiz_id = quiz['id']
 
-    # Get or create the quiz result
     quiz_result_id = session.get('quiz_result_id')
+
+    # Fresh attempt handling
     if not quiz_result_id:
         cursor.execute("""
             INSERT INTO quiz_results (user_id, quiz_id, status)
@@ -183,15 +182,9 @@ def quiz(topic_id):
         conn.commit()
         quiz_result_id = cursor.lastrowid
         session['quiz_result_id'] = quiz_result_id
+        session['per_question_start_time'] = {}  # RESET timers on new quiz
 
-        cursor.execute("""
-            UPDATE quiz_results
-            SET creation_time = NOW()
-            WHERE id = %s
-        """, (quiz_result_id,))
-        conn.commit()
-
-    # Fetch all questions for the topic
+    # Load questions
     cursor.execute("SELECT * FROM questions WHERE topic_id = %s", (topic_id,))
     questions = cursor.fetchall()
 
@@ -200,26 +193,26 @@ def quiz(topic_id):
         return redirect('/dashboard')
 
     current_question = questions[q_index]
-    question_id = current_question['id']
 
-    # Restore user selection if any
     cursor.execute("""
         SELECT user_option FROM question_result
         WHERE quiz_result_id = %s AND question_id = %s
-    """, (quiz_result_id, question_id))
+    """, (quiz_result_id, current_question['id']))
     existing_answer = cursor.fetchone()
     current_question['user_option'] = existing_answer['user_option'] if existing_answer else None
 
-    # Per-question time tracking
-    key = f"question_{question_id}_start"
-    if key not in session:
-        session[key] = datetime.utcnow().isoformat()
+    # --- Per-Question Timer ---
+    if 'per_question_start_time' not in session:
+        session['per_question_start_time'] = {}
 
-    start_time = datetime.fromisoformat(session[key])
+    if str(q_index) not in session['per_question_start_time']:
+        session['per_question_start_time'][str(q_index)] = datetime.utcnow().isoformat()
+
+    start_time = datetime.fromisoformat(session['per_question_start_time'][str(q_index)])
     elapsed = (datetime.utcnow() - start_time).total_seconds()
-    time_left = max(0, 180 - int(elapsed))  # 3 minutes per question
+    time_left = max(0, 180 - int(elapsed))  # 3 minutes max
 
-    # Handle form submission
+    # --- Handle POST ---
     if request.method == 'POST':
         selected = request.form.get('option')
         is_correct = selected == current_question['correct_option'] if selected else False
@@ -227,7 +220,7 @@ def quiz(topic_id):
         cursor.execute("""
             SELECT id FROM question_result
             WHERE quiz_result_id = %s AND question_id = %s
-        """, (quiz_result_id, question_id))
+        """, (quiz_result_id, current_question['id']))
         existing = cursor.fetchone()
 
         if existing:
@@ -240,7 +233,7 @@ def quiz(topic_id):
             cursor.execute("""
                 INSERT INTO question_result (quiz_result_id, question_id, user_option, is_correct)
                 VALUES (%s, %s, %s, %s)
-            """, (quiz_result_id, question_id, selected, is_correct))
+            """, (quiz_result_id, current_question['id'], selected, is_correct))
         conn.commit()
 
         action = request.form.get('action')
@@ -257,14 +250,12 @@ def quiz(topic_id):
 
             cursor.execute("""
                 UPDATE quiz_results
-                SET score = %s,
-                    status = 'submitted',
-                    time_taken = TIMESTAMPDIFF(SECOND, creation_time, NOW())
+                SET score = %s, status = 'submitted', time_taken = NOW() - creation_time
                 WHERE id = %s
             """, (score, quiz_result_id))
             conn.commit()
-
             session.pop('quiz_result_id', None)
+            session.pop('per_question_start_time', None)
             return redirect(url_for('results', result_id=quiz_result_id))
 
     cursor.close()
@@ -277,7 +268,6 @@ def quiz(topic_id):
                            total_questions=len(questions),
                            topic_id=topic_id,
                            time_left=time_left)
-
 
 @app.route('/result/<int:result_id>')
 def results(result_id):
