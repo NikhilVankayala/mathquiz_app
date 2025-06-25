@@ -4,122 +4,126 @@
   <meta charset="UTF-8" />
   <title>Quiz Results</title>
   <style>
-    /* Reset margins */
-    body, h1, h2, h3, p {
-      margin: 0;
-      padding: 0;
-    }
-
     body {
       background-color: #3b75b6;
-      color: white;
       font-family: Arial, sans-serif;
-      padding: 0;
       margin: 0;
+      color: white;
     }
 
-    /* Navbar */
     .navbar {
       background-color: orange;
+      padding: 15px 20px;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 1rem 2rem;
     }
 
-    .navbar-left a,
-    .navbar-right a {
+    .navbar a {
       color: white;
       text-decoration: none;
-      margin-right: 1.5rem;
       font-weight: bold;
-      font-size: 16px;
+      margin: 0 10px;
     }
 
-    .navbar-left a:last-child {
-      margin-right: 0;
-    }
-
-    .navbar-right a {
-      margin-left: 1.5rem;
-    }
-
-    /* Page Content */
-    .container {
-      max-width: 800px;
-      margin: 3rem auto;
+    h1 {
       text-align: center;
+      margin: 30px 0 20px;
     }
 
-    h2 {
-      font-size: 2rem;
-      margin-bottom: 2rem;
+    .result-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding-bottom: 40px;
     }
 
-    .box {
-      background-color: orange;
-      display: inline-block;
-      padding: 1rem 2rem;
-      border-radius: 5px;
+    .result-box {
+      background-color: #f5f5f5;
+      color: black;
+      border-radius: 12px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.15);
+      padding: 20px;
+      width: 90%;
+      max-width: 800px;
+      margin-bottom: 30px;
+    }
+
+    .summary {
+      background-color: #e6f0ff;
+      border-left: 5px solid #3399ff;
+      padding: 10px 15px;
+      margin-bottom: 20px;
+    }
+
+    .summary p {
+      margin: 5px 0;
       font-weight: bold;
-      font-size: 18px;
-      margin: 1rem 0;
-      color: white;
     }
 
-    .question-block {
-      text-align: left;
-      margin-top: 2rem;
-      font-size: 18px;
+    .question {
+      border-top: 1px solid #ccc;
+      padding-top: 15px;
+      margin-top: 15px;
     }
 
-    .question-block h3 {
-      font-size: 20px;
-      margin-bottom: 0.5rem;
+    .correct {
+      color: green;
+      font-weight: bold;
     }
 
-    .question-block p {
-      margin: 0.3rem 0;
+    .incorrect {
+      color: red;
+      font-weight: bold;
     }
 
     .explanation {
       font-style: italic;
-      margin-top: 0.5rem;
+      color: #444;
+      margin-top: 5px;
     }
   </style>
 </head>
 <body>
 
   <!-- Navigation Bar -->
-  <nav class="navbar">
-    <div class="navbar-left">
-      <a href="{{ url_for('home') }}">HOME</a>
-      <a href="#">CONTACT</a>
-      <a href="#">ABOUT US</a>
-      <a href="{{ url_for('dashboard') }}">DASHBOARD</a>
+  <div class="navbar">
+    <div>
+      <a href="/">HOME</a>
+      <a href="/dashboard">DASHBOARD</a>
+      <a href="{{ url_for('topics', grade=session['grade_level']) }}">TOPICS</a>
     </div>
-    <div class="navbar-right">
-      <a href="{{ url_for('login') }}">SIGN OUT</a>
+    <div>
+      <a href="/logout">SIGN OUT</a>
     </div>
-  </nav>
+  </div>
 
-  <!-- Main Content -->
-  <div class="container">
-    <h2>Results</h2>
+  <h1>Quiz Results</h1>
 
-    <div class="box">Score: {{ result.score }}/{{ result.total_questions }}</div>
-    <div class="box">Time taken: {{ formatted_time }}</div>
-
-    {% for q in questions %}
-      <div class="question-block">
-        <h3>{{ loop.index }}. {{ q.question_text }}</h3>
-        <p><strong>Your answer:</strong> {{ q.user_option }}</p>
-        <p><strong>Correct answer:</strong> {{ q.correct_option }}</p>
-        <p class="explanation"><strong>Explanation:</strong> {{ q.explanation }}</p>
+  <div class="result-container">
+    <div class="result-box">
+      <div class="summary">
+        <p>✅ Score: {{ result.score }}/{{ result.total_questions }}</p>
+        <p>⏱️ Time Taken: {{ formatted_time }}</p>
       </div>
-    {% endfor %}
+
+      {% for q in questions %}
+        <div class="question">
+          <p><strong>Q{{ loop.index }}:</strong> {{ q.question_text }}</p>
+          <p>Your answer: <strong>{{ q.user_option }}</strong></p>
+          <p>Correct answer: <strong>{{ q.correct_option }}</strong></p>
+          {% if q.is_correct %}
+            <p class="correct">✓ Correct</p>
+          {% else %}
+            <p class="incorrect">✗ Incorrect</p>
+          {% endif %}
+          <p class="explanation">Explanation: {{ q.explanation }}</p>
+        </div>
+      {% endfor %}
+    </div>
   </div>
 
 </body>
 </html>
+
 

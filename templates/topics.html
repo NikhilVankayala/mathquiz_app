@@ -121,6 +121,7 @@
     <div class="nav-left">
       <a href="/">HOME</a>
       <a href="/dashboard">DASHBOARD</a>
+      <a href="{{ url_for('topics', grade=session['grade_level']) }}">TOPICS</a>
     </div>
     <div class="nav-right">
       <a href="/logout">SIGN OUT</a>
@@ -164,3 +165,4 @@
   </script>
 </body>
 </html>
+

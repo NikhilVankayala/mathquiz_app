@@ -94,7 +94,7 @@
 <body>
 
   <div class="navbar">
-    <div><a href="/">HOME</a> <a href="/dashboard">DASHBOARD</a></div>
+    <div><a href="/">HOME</a> <a href="/dashboard">DASHBOARD</a> <a href="{{ url_for('topics', grade=session['grade_level']) }}">TOPICS</a></div>
     <div><a href="/logout">SIGN OUT</a></div>
   </div>
 
@@ -115,25 +115,39 @@
       </div>
 
       <div class="options-grid">
-        <label class="option">
-          <input type="radio" name="option" value="A" {% if question.user_option == 'A' %}checked{% endif %}>
-          {{ question.option_a }}
-        </label>
+        {% if question.option_c == None and question.option_d == None and question.option_a in ['True', 'T'] and question.option_b in ['False', 'F'] %}
+          <!-- True/False layout -->
+          <label class="option">
+            <input type="radio" name="option" value="T" {% if question.user_option == 'T' %}checked{% endif %}>
+            True
+          </label>
 
-        <label class="option">
-          <input type="radio" name="option" value="B" {% if question.user_option == 'B' %}checked{% endif %}>
-          {{ question.option_b }}
-        </label>
+          <label class="option">
+            <input type="radio" name="option" value="F" {% if question.user_option == 'F' %}checked{% endif %}>
+            False
+          </label>
+        {% else %}
+          <!-- Multiple Choice layout -->
+          <label class="option">
+            <input type="radio" name="option" value="A" {% if question.user_option == 'A' %}checked{% endif %}>
+            {{ question.option_a }}
+          </label>
 
-        <label class="option">
-          <input type="radio" name="option" value="C" {% if question.user_option == 'C' %}checked{% endif %}>
-          {{ question.option_c }}
-        </label>
+          <label class="option">
+            <input type="radio" name="option" value="B" {% if question.user_option == 'B' %}checked{% endif %}>
+            {{ question.option_b }}
+          </label>
 
-        <label class="option">
-          <input type="radio" name="option" value="D" {% if question.user_option == 'D' %}checked{% endif %}>
-          {{ question.option_d }}
-        </label>
+          <label class="option">
+            <input type="radio" name="option" value="C" {% if question.user_option == 'C' %}checked{% endif %}>
+            {{ question.option_c }}
+          </label>
+
+          <label class="option">
+            <input type="radio" name="option" value="D" {% if question.user_option == 'D' %}checked{% endif %}>
+            {{ question.option_d }}
+          </label>
+        {% endif %}
       </div>
 
       <div class="nav-buttons">
