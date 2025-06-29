@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, redirect, session, flash, url
 from werkzeug.security import generate_password_hash, check_password_hash
 from models.db import get_connection
 from datetime import datetime, timezone
+import argparse
 
 app = Flask(__name__)
 app.secret_key = 'nikhilv30'
@@ -206,10 +207,10 @@ def quiz(topic_id):
         session['per_question_start_time'] = {}
 
     if str(q_index) not in session['per_question_start_time']:
-        session['per_question_start_time'][str(q_index)] = datetime.utcnow().isoformat()
+        session['per_question_start_time'][str(q_index)] = datetime.now(timezone.utc).isoformat()
 
     start_time = datetime.fromisoformat(session['per_question_start_time'][str(q_index)])
-    elapsed = (datetime.utcnow() - start_time).total_seconds()
+    elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
     time_left = max(0, 180 - int(elapsed))  # 3 minutes max
 
     # --- Handle POST ---
@@ -402,4 +403,8 @@ def logout():
 
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--port', type=int, default=5000, help='Port to run the app on')
+    args = parser.parse_args()
+
+    app.run(host="0.0.0.0", port=args.port, debug=True, use_reloader=False)

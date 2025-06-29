@@ -186,3 +186,30 @@ body {
   pointer-events: none;
   cursor: not-allowed;
 }
+
+.flash-messages {
+  margin: 20px auto;
+  width: 90%;
+  max-width: 500px;
+}
+
+.flash-message {
+  padding: 10px 15px;
+  border-radius: 5px;
+  margin-bottom: 10px;
+  font-weight: bold;
+  color: white;
+}
+
+.flash-message.success {
+  background-color: #4CAF50;
+}
+
+.flash-message.danger {
+  background-color: #f44336;
+}
+
+.flash-message.info {
+  background-color: #2196F3;
+}
+
