@@ -10,14 +10,14 @@ jobs:
       mysql:
         image: mysql:8.0
         env:
-          MYSQL_ROOT_PASSWORD: ${{ secrets.DB_ROOT_PASSWORD }}
-          MYSQL_DATABASE: ${{ secrets.DB_NAME }}
-          MYSQL_USER: ${{ secrets.DB_USER }}
-          MYSQL_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: mathquiz_test
+          MYSQL_USER: testuser
+          MYSQL_PASSWORD: testpass
         ports:
           - 3306:3306
         options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -u${{ secrets.DB_USER }} -p${{ secrets.DB_PASSWORD }}" 
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -utestuser -ptestpass"
           --health-interval=10s 
           --health-timeout=5s 
           --health-retries=5
@@ -25,9 +25,9 @@ jobs:
     env:
       DB_HOST: 127.0.0.1
       DB_PORT: 3306
-      DB_USER: ${{ secrets.DB_USER }}
-      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-      DB_NAME: ${{ secrets.DB_NAME }}
+      DB_USER: testuser
+      DB_PASSWORD: testpass
+      DB_NAME: mathquiz_test
 
     steps:
     - name: Checkout code
@@ -46,7 +46,7 @@ jobs:
     - name: Wait for MySQL to be ready
       run: |
         for i in {1..30}; do
-          if mysql -h 127.0.0.1 -P 3306 -u"$DB_USER" -p"$DB_PASSWORD" -e "SELECT 1" "$DB_NAME"; then
+          if mysql -h 127.0.0.1 -P 3306 -utestuser -ptestpass -e "SELECT 1" mathquiz_test; then
             echo "MySQL is ready"
             break
           fi
@@ -54,10 +54,9 @@ jobs:
           sleep 2
         done
 
-    - name: Set up database schema
+    - name: Initialize Database Schema
       run: |
-        echo "Running schema.sql"
-        mysql -h 127.0.0.1 -P 3306 -u"$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" < schema.sql
+        mysql -h 127.0.0.1 -P 3306 -uroot -proot mathquiz_test < schema.sql
 
     - name: Run tests with coverage
       run: |
@@ -71,6 +70,7 @@ jobs:
         name: coverage-report
         path: htmlcov/
         if-no-files-found: warn
+
 
 
 
