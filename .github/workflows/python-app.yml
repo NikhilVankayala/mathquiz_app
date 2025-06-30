@@ -57,6 +57,7 @@ jobs:
     - name: Initialize Database Schema
       run: |
         mysql -h 127.0.0.1 -P 3306 -uroot -proot mathquiz_test < schema.sql
+        mysql -h 127.0.0.1 -P 3306 -uroot -proot mathquiz_test < test_data.sql
 
     - name: Run tests with coverage
       run: |
