@@ -54,6 +54,11 @@ jobs:
           sleep 2
         done
 
+    - name: Set up database schema
+      run: |
+        echo "Running schema.sql"
+        mysql -h 127.0.0.1 -P 3306 -u"$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" < schema.sql
+
     - name: Run tests with coverage
       run: |
         coverage run -m pytest
@@ -66,4 +71,7 @@ jobs:
         name: coverage-report
         path: htmlcov/
         if-no-files-found: warn
+
+
+
 
