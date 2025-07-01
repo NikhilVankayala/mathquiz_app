@@ -31,7 +31,7 @@ Containerization: Docker
 
 Authentication: Flask sessions + werkzeug.security
 
-'''
+```
 📁 Project Structure
 mathquiz_app/
 │
@@ -64,55 +64,55 @@ mathquiz_app/
 ├── test_app.py               # Pytest unit tests for the application
 ├── test_data.sql             # SQL script for additional test-specific data
 └── __pycache__/              # Python bytecode cache
-'''
+```
 🚀 Getting Started
 Follow these steps to set up and run the MathQuiz App locally.
 
 1. Clone the Repository
-'''
+```
 git clone [https://github.com/your-username/mathquiz_app.git](https://github.com/your-username/mathquiz_app.git)
 cd mathquiz_app
-'''
+```
 2. Create a Virtual Environment
 It's recommended to use a virtual environment to manage project dependencies.
-'''
+```
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
-'''
+```
 3. Install Requirements
 Install all necessary Python packages.
-'''
+```
 pip install -r requirements.txt
-'''
+```
 4. Set Up MySQL Database
 Ensure you have MySQL installed and running. Then, create the database schema and populate it with initial data.
-'''
+```
 # Connect to MySQL as root and run schema and seed data
 mysql -u root -p < schema.sql
 mysql -u root -p < seed_data.sql
 # If you have test_data.sql for local testing, you might run it here too:
 # mysql -u root -p < test_data.sql
-'''
+```
 5. Run the Application
 Start the Flask development server.
-'''
+```
 flask run
-'''
+```
 The app will typically be accessible at http://127.0.0.1:5000/.
 
 6. Run Tests
 To run the unit tests and generate a coverage report:
-'''
+```
 pytest --cov
-'''
+```
 This will execute all tests defined in test_app.py and generate a coverage report in the htmlcov/ directory.
 
 🐳 Docker Instructions
 To build and run the application using Docker:
-'''
+```
 docker build -t mathquiz_app .
 docker run -p 5000:5000 mathquiz_app
-'''
+```
 Note: When running with Docker, ensure your container or host is connected to a MySQL instance and that the necessary environment variables (e.g., DB_HOST, DB_USER, DB_PASSWORD, DB_NAME) are set correctly for the application to connect to the database.
 
 ✅ Future Improvements
