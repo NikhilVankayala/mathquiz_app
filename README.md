@@ -1,4 +1,3 @@
-MathQuiz App 
 MathQuiz App is a dynamic, web-based platform designed with Flask and MySQL, offering engaging, topic-based math quizzes for high school students (Grades 9–12). It provides a comprehensive learning experience with features like secure user authentication, interactive timed questions, a personalized performance dashboard, and full quiz history. Built with modern web technologies and Docker support, it ensures easy deployment and a smooth user experience.
 
  Features
