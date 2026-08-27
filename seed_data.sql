@@ -1250,7 +1250,7 @@ INSERT INTO questions (topic_id, question_text, option_a, option_b, option_c, op
 
 (33, 'A function f(x) is continuous at x = a if:', '\\( \\lim_{x \\to a} f(x) \\) exists', 'f(a) exists', '\\( \\lim_{x \\to a} f(x) = f(a) \\)', 'All of the above', 'D', 'MCQ', 'Three conditions for continuity: limit exists, function value exists, and they are equal.'),
 
-(33, 'Evaluate \\( \\lim_{x \\to 0} \\frac{1-\\cos(x)}{x^2} \\)', '0', '\\frac{1}{2}', '1', 'Does not exist', 'B', 'MCQ', 'Use L'Hôpital's rule twice or recall that \\( 1-\\cos(x) \\approx \\frac{x^2}{2} \\) near x = 0.'),
+(33, 'Evaluate \\( \\lim_{x \\to 0} \\frac{1-\\cos(x)}{x^2} \\)', '0', '\\frac{1}{2}', '1', 'Does not exist', 'B', 'MCQ', 'Use L''Hôpital''s rule twice or recall that \\( 1-\\cos(x) \\approx \\frac{x^2}{2} \\) near x = 0.'),
 
 (33, 'Find \\( \\lim_{x \\to 4^+} \\sqrt{x-4} \\)', '0', '2', 'Does not exist', '∞', 'A', 'MCQ', 'As x approaches 4 from the right, the square root approaches 0. The limit exists and equals 0.'),
 

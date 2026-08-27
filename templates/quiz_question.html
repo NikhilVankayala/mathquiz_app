@@ -165,34 +165,20 @@
   </form>
 
   <script>
-    let totalTime = {{ time_left | default(180) | int }};
-  const timer = document.getElementById("time");
+    // Parse server-provided value safely for VS Code and JS
+    let totalTime = parseInt("{{ time_left | default(180) | int }}");
 
-  function updateTimer() {
-    const minutes = Math.floor(totalTime / 60);
-    const seconds = totalTime % 60;
-    timer.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-
-    if (totalTime > 0) {
-      totalTime--;
-    } else {
-      clearInterval(interval);
-
-      // Auto-move to next or submit
-      const form = document.querySelector("form");
-      const isLast = document.querySelector('button[name="action"][value="submit"]');
-
-      let input = document.createElement("input");
-      input.type = "hidden";
-      input.name = "action";
-      input.value = isLast ? "submit" : "next";
-
-      form.appendChild(input);
-      form.submit();
+    function updateTimer() {
+      const timerElement = document.getElementById("time");
+      if (totalTime > 0) {
+        totalTime--;
+        timerElement.textContent = totalTime;
+      } else {
+        document.forms[0].submit(); // auto-submit when time runs out
+      }
     }
-  }
 
-    const interval = setInterval(updateTimer, 1000);
+    setInterval(updateTimer, 1000);
   </script>
 
 </body>

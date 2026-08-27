@@ -50,8 +50,8 @@
     .progress-bar {
       height: 25px;
       background-color: limegreen;
-      width: {{ completed_percent }}%;
       transition: width 0.5s ease-in-out;
+      width: 0; /* default, updated with JS */
     }
 
     .progress-text {
@@ -136,9 +136,11 @@
 
   <!-- Progress Bar -->
   <div class="progress-container">
-    <div class="progress-bar"></div>
+    <div class="progress-bar" data-width="{{ completed_percent }}"></div>
   </div>
-  <div class="progress-text">{{ completed_count }} of {{ total_count }} topics completed ({{ completed_percent }}%)</div>
+  <div class="progress-text">
+    {{ completed_count }} of {{ total_count }} topics completed ({{ completed_percent }}%)
+  </div>
 
   <!-- Topics List -->
   {% for topic in topics %}
@@ -160,9 +162,15 @@
     </div>
   {% endif %}
 
+  <!-- Script to apply progress bar width -->
   <script>
-    document.querySelector('.progress-bar').style.width = '{{ completed_percent }}%';
+    const bar = document.querySelector('.progress-bar');
+    if (bar) {
+      bar.style.width = bar.dataset.width + '%';
+    }
   </script>
 </body>
 </html>
+
+
 
