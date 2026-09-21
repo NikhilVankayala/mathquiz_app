@@ -1,0 +1,20 @@
+FROM public.ecr.aws/docker/library/python:3.12-slim
+
+# Lambda Web Adapter: bridges API Gateway <-> your HTTP server on port 8080.
+COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:0.8.4 /lambda-adapter /opt/extensions/lambda-adapter
+
+WORKDIR /var/task
+
+# The adapter forwards requests to this port; gunicorn listens here.
+ENV PORT=8080
+# Tell the adapter to wait for the app to be ready before sending traffic.
+ENV AWS_LWA_READINESS_CHECK_PATH=/
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# App code. Copy the whole project; adjust if you add a .dockerignore.
+COPY . .
+
+# RDS Proxy handles pooling across instances.
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "1", "--timeout", "30", "app:app"]

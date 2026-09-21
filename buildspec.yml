@@ -1,0 +1,65 @@
+version: 0.2
+
+phases:
+  pre_build:
+    commands:
+      - echo "== ECR login =="
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
+      - REPO_URI=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$ECR_REPO_NAME
+      - IMAGE_TAG=${CODEBUILD_RESOLVED_SOURCE_VERSION:-latest}
+
+      - echo "== Start throwaway MySQL =="
+      - docker run -d --name testdb -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=mathquiz_test -p 3306:3306 mysql:8.0
+      # Wait until MySQL accepts connections.
+      - |
+        for i in $(seq 1 30); do
+          if docker exec testdb mysqladmin ping -uroot -proot --silent 2>/dev/null; then
+            echo "MySQL is up"; break
+          fi
+          echo "waiting for mysql ($i)"; sleep 3
+        done
+      # Load schema into the TEST database.
+      - docker exec -i testdb mysql -uroot -proot mathquiz_test < schema.sql
+
+  build:
+    commands:
+      - echo "== Run tests =="
+      - pip install -r requirements.txt
+      - pip install pytest coverage
+      # Point the app + test fixtures at the throwaway DB. DB_NAME is disposable,
+      # so the truncating db_cleanup fixture can never touch real data.
+      - export DB_HOST=127.0.0.1
+      - export DB_PORT=3306
+      - export DB_USER=root
+      - export DB_PASSWORD=root
+      - export DB_NAME=mathquiz_test
+      - pytest -q
+
+      - echo "== Build & push image =="
+      - docker build -f Dockerfile.lambda -t $REPO_URI:$IMAGE_TAG .
+      - docker push $REPO_URI:$IMAGE_TAG
+      - echo "Pushed $REPO_URI:$IMAGE_TAG"
+
+      - echo "== Package the DB-init Lambda (zip) =="
+      # A small zip Lambda that loads schema.sql + seed_data.sql into Aurora on
+      # stack creation. Bundle the handler, the two .sql files, and mysql-connector.
+      - mkdir -p initpkg
+      - cp db_init.py schema.sql seed_data.sql initpkg/
+      - pip install mysql-connector-python==9.3.0 -t initpkg/
+      - cd initpkg && zip -r ../db_init.zip . >/dev/null && cd ..
+      # Upload to the artifact bucket so CloudFormation can reference it.
+      - aws s3 cp db_init.zip s3://$ARTIFACT_BUCKET/db_init/$IMAGE_TAG/db_init.zip
+
+  post_build:
+    commands:
+      # Hand CloudFormation the image URI AND the init-zip location.
+      - |
+        printf '{"Parameters":{"ImageUri":"%s","InitZipBucket":"%s","InitZipKey":"db_init/%s/db_init.zip"}}' \
+          "$REPO_URI:$IMAGE_TAG" "$ARTIFACT_BUCKET" "$IMAGE_TAG" > params.json
+      - cat params.json
+
+artifacts:
+  files:
+    - infra/template.yaml
+    - params.json
+  discard-paths: no

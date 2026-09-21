@@ -26,7 +26,7 @@ def db_cleanup():
         # List tables to truncate in reverse order of dependency if needed,
         # but with FOREIGN_KEY_CHECKS = 0, order is less critical.
         # Ensure all tables that tests might write to are included.
-        tables = ['quiz_questions', 'quiz_results', 'quizzes', 'users', 'questions', 'topics']
+        tables = ['question_result', 'quiz_results', 'quizzes', 'users', 'questions', 'topics']
         for table in tables:
             try:
                 # TRUNCATE TABLE is faster than DELETE FROM and resets auto-increment

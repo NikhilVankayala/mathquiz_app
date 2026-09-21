@@ -1,0 +1,381 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  MathQuiz serverless app stack: Aurora Serverless v2 (MySQL) + RDS Proxy,
+  a container-image Lambda running Flask behind an HTTP API Gateway.
+  
+Parameters:
+  ImageUri:
+    Type: String
+    Description: ECR image URI (with tag/digest) for the Lambda container. Supplied by the pipeline.
+
+  DBName:
+    Type: String
+    Default: mathquiz_app
+    Description: Initial database name.
+
+  FlaskSecretKey:
+    Type: String
+    NoEcho: true
+    Description: Value for Flask's app.secret_key (sessions). Stored in Secrets Manager.
+
+  MinACU:
+    Type: Number
+    Default: 0.5
+    Description: Aurora Serverless v2 minimum capacity (ACU). 0.5 is the floor.
+
+  MaxACU:
+    Type: Number
+    Default: 2
+    Description: Aurora Serverless v2 maximum capacity (ACU).
+
+  InitZipBucket:
+    Type: String
+    Description: S3 bucket holding the DB-init Lambda zip (from the pipeline).
+
+  InitZipKey:
+    Type: String
+    Description: S3 key of the DB-init Lambda zip (from the pipeline).
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags: [{ Key: Name, Value: mathquiz-vpc }]
+
+  # Two private subnets in different AZs — Aurora and RDS Proxy require >= 2 AZs.
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags: [{ Key: Name, Value: mathquiz-private-a }]
+
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags: [{ Key: Name, Value: mathquiz-private-b }]
+
+  # Secrets Manager needs to be reachable from the Lambda inside the VPC.
+  # A VPC endpoint avoids needing a NAT gateway (which costs money hourly).
+  SecretsManagerEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.secretsmanager
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds: [!Ref PrivateSubnetA, !Ref PrivateSubnetB]
+      SecurityGroupIds: [!Ref EndpointSecurityGroup]
+
+  # ------------------------------------------------------------------ Security groups
+  LambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: MathQuiz Lambda
+      VpcId: !Ref Vpc
+      Tags: [{ Key: Name, Value: mathquiz-lambda-sg }]
+
+  ProxySecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: RDS Proxy
+      VpcId: !Ref Vpc
+      Tags: [{ Key: Name, Value: mathquiz-proxy-sg }]
+
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Aurora cluster
+      VpcId: !Ref Vpc
+      Tags: [{ Key: Name, Value: mathquiz-db-sg }]
+
+  EndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: VPC interface endpoints
+      VpcId: !Ref Vpc
+      Tags: [{ Key: Name, Value: mathquiz-endpoint-sg }]
+
+  # Lambda -> RDS Proxy on 3306
+  ProxyIngressFromLambda:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref ProxySecurityGroup
+      IpProtocol: tcp
+      FromPort: 3306
+      ToPort: 3306
+      SourceSecurityGroupId: !Ref LambdaSecurityGroup
+
+  # RDS Proxy -> Aurora on 3306
+  DBIngressFromProxy:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref DBSecurityGroup
+      IpProtocol: tcp
+      FromPort: 3306
+      ToPort: 3306
+      SourceSecurityGroupId: !Ref ProxySecurityGroup
+
+  # Lambda -> Secrets Manager endpoint on 443
+  EndpointIngressFromLambda:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref EndpointSecurityGroup
+      IpProtocol: tcp
+      FromPort: 443
+      ToPort: 443
+      SourceSecurityGroupId: !Ref LambdaSecurityGroup
+
+  # DB master credentials. RDS can generate the password for us.
+  DBSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: mathquiz/db-credentials
+      Description: Aurora master credentials for MathQuiz
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "admin"}'
+        GenerateStringKey: password
+        PasswordLength: 24
+        ExcludeCharacters: '"@/\ '
+
+  FlaskSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: mathquiz/flask-secret-key
+      SecretString: !Ref FlaskSecretKey
+
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: MathQuiz Aurora subnets
+      SubnetIds: [!Ref PrivateSubnetA, !Ref PrivateSubnetB]
+
+  DBCluster:
+    Type: AWS::RDS::DBCluster
+    Properties:
+      Engine: aurora-mysql
+      EngineVersion: '8.0.mysql_aurora.3.07.1'
+      DatabaseName: !Ref DBName
+      MasterUsername: !Sub '{{resolve:secretsmanager:${DBSecret}:SecretString:username}}'
+      MasterUserPassword: !Sub '{{resolve:secretsmanager:${DBSecret}:SecretString:password}}'
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VpcSecurityGroupIds: [!Ref DBSecurityGroup]
+      ServerlessV2ScalingConfiguration:
+        MinCapacity: !Ref MinACU
+        MaxCapacity: !Ref MaxACU
+
+  DBInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBClusterIdentifier: !Ref DBCluster
+      DBInstanceClass: db.serverless
+      Engine: aurora-mysql
+
+  # Ties the generated secret to the cluster so RDS Proxy can consume it.
+  SecretAttachment:
+    Type: AWS::SecretsManager::SecretTargetAttachment
+    Properties:
+      SecretId: !Ref DBSecret
+      TargetId: !Ref DBCluster
+      TargetType: AWS::RDS::DBCluster
+
+  # ------------------------------------------------------------------ RDS Proxy
+  ProxyRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: rds.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: read-db-secret
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [secretsmanager:GetSecretValue]
+                Resource: !Ref DBSecret
+
+  DBProxy:
+    Type: AWS::RDS::DBProxy
+    DependsOn: SecretAttachment
+    Properties:
+      DBProxyName: mathquiz-proxy
+      EngineFamily: MYSQL
+      RoleArn: !GetAtt ProxyRole.Arn
+      Auth:
+        - AuthScheme: SECRETS
+          SecretArn: !Ref DBSecret
+          IAMAuth: DISABLED
+      VpcSubnetIds: [!Ref PrivateSubnetA, !Ref PrivateSubnetB]
+      VpcSecurityGroupIds: [!Ref ProxySecurityGroup]
+      # Not requiring TLS so the app's existing models/db.py connects unchanged.
+      # Traffic stays inside the private VPC subnets. Flip to true + add TLS in
+      # db.py as a later hardening step.
+      RequireTLS: false
+
+  ProxyTargetGroup:
+    Type: AWS::RDS::DBProxyTargetGroup
+    Properties:
+      DBProxyName: !Ref DBProxy
+      TargetGroupName: default
+      DBClusterIdentifiers: [!Ref DBCluster]
+
+  # ------------------------------------------------------------------ Lambda
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        # Lets the Lambda create ENIs in the VPC and write logs.
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      Policies:
+        - PolicyName: read-app-secrets
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [secretsmanager:GetSecretValue]
+                Resource: [!Ref DBSecret, !Ref FlaskSecret]
+
+  AppFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: mathquiz-app
+      PackageType: Image
+      Code:
+        ImageUri: !Ref ImageUri
+      Role: !GetAtt LambdaRole.Arn
+      Timeout: 30
+      MemorySize: 512
+      VpcConfig:
+        SubnetIds: [!Ref PrivateSubnetA, !Ref PrivateSubnetB]
+        SecurityGroupIds: [!Ref LambdaSecurityGroup]
+      Environment:
+        Variables:
+          DB_HOST: !GetAtt DBProxy.Endpoint
+          DB_PORT: '3306'
+          DB_NAME: !Ref DBName
+          DB_SECRET_ARN: !Ref DBSecret
+          FLASK_SECRET_ARN: !Ref FlaskSecret
+
+  # A zip Lambda that loads schema.sql + seed_data.sql into Aurora on stack Create.
+  # Runs in the VPC so it can reach the RDS Proxy. Invoked once by InitDatabase below.
+  DbInitRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      Policies:
+        - PolicyName: read-db-secret
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [secretsmanager:GetSecretValue]
+                Resource: !Ref DBSecret
+
+  DbInitFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: mathquiz-db-init
+      Handler: db_init.handler
+      Runtime: python3.12
+      Timeout: 120
+      MemorySize: 256
+      Role: !GetAtt DbInitRole.Arn
+      Code:
+        S3Bucket: !Ref InitZipBucket
+        S3Key: !Ref InitZipKey
+      VpcConfig:
+        SubnetIds: [!Ref PrivateSubnetA, !Ref PrivateSubnetB]
+        SecurityGroupIds: [!Ref LambdaSecurityGroup]
+      Environment:
+        Variables:
+          DB_HOST: !GetAtt DBProxy.Endpoint
+          DB_PORT: '3306'
+          DB_NAME: !Ref DBName
+          # The init function reads creds directly from env (resolved from the secret).
+          DB_USER: !Sub '{{resolve:secretsmanager:${DBSecret}:SecretString:username}}'
+          DB_PASSWORD: !Sub '{{resolve:secretsmanager:${DBSecret}:SecretString:password}}'
+
+  # The custom resource triggers the init function. DependsOn ensures Aurora,
+  # the proxy target, and the SG rule all exist before it runs.
+  InitDatabase:
+    Type: AWS::CloudFormation::CustomResource
+    DependsOn: [ProxyTargetGroup, DBInstance, DBIngressFromProxy, ProxyIngressFromLambda]
+    Properties:
+      ServiceToken: !GetAtt DbInitFunction.Arn
+
+  HttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: mathquiz-api
+      ProtocolType: HTTP
+
+  ApiIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt AppFunction.Arn
+      PayloadFormatVersion: '2.0'
+
+  ApiRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: 'ANY /{proxy+}'
+      Target: !Sub 'integrations/${ApiIntegration}'
+
+  ApiRouteRoot:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: 'ANY /'
+      Target: !Sub 'integrations/${ApiIntegration}'
+
+  ApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref HttpApi
+      StageName: $default
+      AutoDeploy: true
+
+  ApiInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref AppFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*'
+
+Outputs:
+  ApiUrl:
+    Description: Public URL of the MathQuiz app
+    Value: !GetAtt HttpApi.ApiEndpoint
+  ProxyEndpoint:
+    Description: RDS Proxy endpoint (DB_HOST)
+    Value: !GetAtt DBProxy.Endpoint
+  DBSecretArn:
+    Value: !Ref DBSecret

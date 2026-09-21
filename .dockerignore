@@ -1,5 +1,14 @@
 venv/
+.venv/
 __pycache__/
+**/__pycache__/
 *.pyc
-.DS_Store
-*.db
+.pytest_cache/
+.coverage
+.git/
+.github/
+infra/
+test_app.py
+test_data.sql
+*.md
+Dockerfile

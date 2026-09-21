@@ -3,9 +3,26 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from models.db import get_connection
 from datetime import datetime, timezone
 import argparse
+import os, json
+import boto3
 
 app = Flask(__name__)
-app.secret_key = 'nikhilv30'
+
+def _load_secret(arn):
+    """Fetch a secret string from Secrets Manager (used on AWS)."""
+    client = boto3.client('secretsmanager')
+    return client.get_secret_value(SecretId=arn)['SecretString']
+
+# On AWS the secret ARNs are injected as env vars; locally we fall back to a dev key.
+_flask_secret_arn = os.getenv('FLASK_SECRET_ARN')
+if _flask_secret_arn:
+    app.secret_key = _load_secret(_flask_secret_arn)
+    # Populate DB_USER / DB_PASSWORD from the DB secret so models/db.py works unchanged.
+    _db_secret = json.loads(_load_secret(os.environ['DB_SECRET_ARN']))
+    os.environ['DB_USER'] = _db_secret['username']
+    os.environ['DB_PASSWORD'] = _db_secret['password']
+else:
+    app.secret_key = os.getenv('FLASK_SECRET_KEY', 'dev-only-key')
 
 @app.route('/')
 def home():
