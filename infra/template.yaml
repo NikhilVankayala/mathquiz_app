@@ -2,7 +2,7 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: >
   MathQuiz serverless app stack: Aurora Serverless v2 (MySQL) + RDS Proxy,
   a container-image Lambda running Flask behind an HTTP API Gateway.
-  
+
 Parameters:
   ImageUri:
     Type: String
@@ -161,7 +161,7 @@ Resources:
     Type: AWS::RDS::DBCluster
     Properties:
       Engine: aurora-mysql
-      EngineVersion: '8.0.mysql_aurora.3.07.1'
+      EngineVersion: '8.0.mysql_aurora.3.08.2'
       DatabaseName: !Ref DBName
       MasterUsername: !Sub '{{resolve:secretsmanager:${DBSecret}:SecretString:username}}'
       MasterUserPassword: !Sub '{{resolve:secretsmanager:${DBSecret}:SecretString:password}}'
