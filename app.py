@@ -46,14 +46,19 @@ def init_db():
         conn.close()
 
 
-# Run once at import time, but only on AWS (where DB_SECRET_ARN is set).
-# Locally you manage the DB yourself, so this is skipped.
-if os.getenv('DB_SECRET_ARN'):
-    try:
-        init_db()
-    except Exception as e:
-        # Don't crash the whole app if init hiccups on a cold start; log it.
-        print(f"init_db warning: {e}")
+_db_initialized = False
+
+@app.before_request
+def _ensure_db():
+    global _db_initialized
+    if _db_initialized:
+        return
+    if os.getenv('DB_SECRET_ARN'):
+        try:
+            init_db()
+        except Exception as e:
+            print(f"init_db error: {e}")
+    _db_initialized = True
 
 def _load_secret(arn):
     """Fetch a secret string from Secrets Manager (used on AWS)."""
