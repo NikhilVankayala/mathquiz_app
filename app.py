@@ -64,7 +64,7 @@ def init_db():
         cursor.execute("SELECT COUNT(*) FROM topics")
         (count,) = cursor.fetchone()
         print(f"init_db: topics count before seed = {count}")
-        if True:  # TEMPORARY: force a clean reseed once, then revert to `if count == 0:`
+        if count == 0:  # TEMPORARY: force a clean reseed once, then revert to `if count == 0:`
             # Wipe existing data so the reseed can't hit duplicate-key errors.
             cursor.execute("SET FOREIGN_KEY_CHECKS=0")
             for t in ['question_result', 'quiz_results', 'quizzes', 'questions', 'topics']:
