@@ -1,5 +1,6 @@
 version: 0.2
 
+
 phases:
   pre_build:
     commands:
@@ -10,16 +11,17 @@ phases:
 
       - echo "== Start throwaway MySQL =="
       - docker run -d --name testdb -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=mathquiz_test -p 3306:3306 mysql:8.0
-      # Wait until MySQL accepts connections.
       - |
-        for i in $(seq 1 30); do
-          if docker exec testdb mysqladmin ping -uroot -proot --silent 2>/dev/null; then
-            echo "MySQL is up"; break
+        for i in $(seq 1 40); do
+          if docker exec testdb mysql -uroot -proot -e "SELECT 1" >/dev/null 2>&1; then
+            echo "MySQL is ready"; break
           fi
           echo "waiting for mysql ($i)"; sleep 3
+          if [ "$i" -eq 40 ]; then echo "MySQL never became ready"; exit 1; fi
         done
-      # Load schema into the TEST database.
-      - docker exec -i testdb mysql -uroot -proot mathquiz_test < schema.sql
+      # Load schema into the TEST database. cat | exec avoids host-vs-container
+      # stdin-redirect ambiguity.
+      - cat schema.sql | docker exec -i testdb mysql -uroot -proot mathquiz_test
 
   build:
     commands:
