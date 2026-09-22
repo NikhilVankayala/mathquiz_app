@@ -55,10 +55,9 @@ def init_db():
 
         if not has_schema:
             with open(os.path.join(here, 'schema.sql'), 'r', encoding='utf-8') as f:
-                # multi=True lets mysql-connector run the whole file correctly,
-                # including statements the naive ';' split would mangle.
-                for _ in cursor.execute(f.read(), multi=True):
-                    pass
+                for stmt in f.read().split(';'):
+                    if stmt.strip():
+                        cursor.execute(stmt)
             conn.commit()
             print("init_db: schema loaded")
 
@@ -66,8 +65,9 @@ def init_db():
         (count,) = cursor.fetchone()
         if count == 0:
             with open(os.path.join(here, 'seed_data.sql'), 'r', encoding='utf-8') as f:
-                for _ in cursor.execute(f.read(), multi=True):
-                    pass
+                for stmt in f.read().split(';'):
+                    if stmt.strip():
+                        cursor.execute(stmt)
             conn.commit()
             print("init_db: seed loaded")
         else:
