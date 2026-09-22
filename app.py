@@ -45,6 +45,11 @@ def init_db():
     conn = get_connection()
     cursor = conn.cursor()
     try:
+        # The seed contains LaTeX with backslashes (e.g. \\( ... \\)). MySQL treats
+        # backslash as an escape char by default, which corrupts string parsing on
+        # a bulk load. Disable it for this session so backslashes are literal.
+        cursor.execute("SET SESSION sql_mode = 'NO_BACKSLASH_ESCAPES'")
+
         cursor.execute("SHOW TABLES LIKE 'topics'")
         has_schema = cursor.fetchone() is not None
 
