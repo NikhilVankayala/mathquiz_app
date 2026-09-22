@@ -8,6 +8,53 @@ import boto3
 
 app = Flask(__name__)
 
+def init_db():
+    """
+    Ensure the schema and seed data exist. Safe to call on every cold start:
+    it checks whether tables/rows already exist and does nothing if so.
+    Only runs the heavy load once, on a genuinely empty database.
+    """
+    import os
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        # Is the schema already there? Check for a known table.
+        cursor.execute("SHOW TABLES LIKE 'topics'")
+        has_schema = cursor.fetchone() is not None
+
+        if not has_schema:
+            # Load schema.sql, statement by statement.
+            here = os.path.dirname(os.path.abspath(__file__))
+            with open(os.path.join(here, 'schema.sql'), 'r', encoding='utf-8') as f:
+                for stmt in f.read().split(';'):
+                    if stmt.strip():
+                        cursor.execute(stmt)
+            conn.commit()
+
+        # Seed only if topics is empty.
+        cursor.execute("SELECT COUNT(*) FROM topics")
+        (count,) = cursor.fetchone()
+        if count == 0:
+            here = os.path.dirname(os.path.abspath(__file__))
+            with open(os.path.join(here, 'seed_data.sql'), 'r', encoding='utf-8') as f:
+                for stmt in f.read().split(';'):
+                    if stmt.strip():
+                        cursor.execute(stmt)
+            conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+
+# Run once at import time, but only on AWS (where DB_SECRET_ARN is set).
+# Locally you manage the DB yourself, so this is skipped.
+if os.getenv('DB_SECRET_ARN'):
+    try:
+        init_db()
+    except Exception as e:
+        # Don't crash the whole app if init hiccups on a cold start; log it.
+        print(f"init_db warning: {e}")
+
 def _load_secret(arn):
     """Fetch a secret string from Secrets Manager (used on AWS)."""
     client = boto3.client('secretsmanager')

@@ -1,5 +1,13 @@
 version: 0.2
 
+# CodeBuild pipeline:
+#   1. Stand up a throwaway MySQL (Docker) and load schema into a TEST database.
+#   2. Run pytest against it — the db_cleanup fixture truncates/reseeds freely,
+#      and because DB_NAME points at the disposable DB, real data is never at risk.
+#   3. Build the Lambda container image, push to ECR.
+#   4. Emit params.json so the CloudFormation deploy stage gets the image URI.
+#
+# Env vars set by pipeline.yaml: AWS_ACCOUNT_ID, AWS_DEFAULT_REGION, ECR_REPO_NAME
 
 phases:
   pre_build:
@@ -11,6 +19,11 @@ phases:
 
       - echo "== Start throwaway MySQL =="
       - docker run -d --name testdb -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=mathquiz_test -p 3306:3306 mysql:8.0
+      # Wait until MySQL is truly ready: not just pinging, but accepting an
+      # authenticated root query. The image reports "up" on the socket before it
+      # finishes applying MYSQL_ROOT_PASSWORD, so a plain ping races ahead and
+      # the next command gets "Access denied". This loop only breaks once
+      # password auth actually works.
       - |
         for i in $(seq 1 40); do
           if docker exec testdb mysql -uroot -proot -e "SELECT 1" >/dev/null 2>&1; then
@@ -42,22 +55,10 @@ phases:
       - docker push $REPO_URI:$IMAGE_TAG
       - echo "Pushed $REPO_URI:$IMAGE_TAG"
 
-      - echo "== Package the DB-init Lambda (zip) =="
-      # A small zip Lambda that loads schema.sql + seed_data.sql into Aurora on
-      # stack creation. Bundle the handler, the two .sql files, and mysql-connector.
-      - mkdir -p initpkg
-      - cp db_init.py schema.sql seed_data.sql initpkg/
-      - pip install mysql-connector-python==9.3.0 -t initpkg/
-      - cd initpkg && zip -r ../db_init.zip . >/dev/null && cd ..
-      # Upload to the artifact bucket so CloudFormation can reference it.
-      - aws s3 cp db_init.zip s3://$ARTIFACT_BUCKET/db_init/$IMAGE_TAG/db_init.zip
-
   post_build:
     commands:
-      # Hand CloudFormation the image URI AND the init-zip location.
-      - |
-        printf '{"Parameters":{"ImageUri":"%s","InitZipBucket":"%s","InitZipKey":"db_init/%s/db_init.zip"}}' \
-          "$REPO_URI:$IMAGE_TAG" "$ARTIFACT_BUCKET" "$IMAGE_TAG" > params.json
+      # Hand the image URI to CloudFormation as a template configuration file.
+      - printf '{"Parameters":{"ImageUri":"%s"}}' "$REPO_URI:$IMAGE_TAG" > params.json
       - cat params.json
 
 artifacts:

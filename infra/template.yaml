@@ -3,6 +3,9 @@ Description: >
   MathQuiz serverless app stack: Aurora Serverless v2 (MySQL) + RDS Proxy,
   a container-image Lambda running Flask behind an HTTP API Gateway.
 
+# ---------------------------------------------------------------------------
+# Parameters
+# ---------------------------------------------------------------------------
 Parameters:
   ImageUri:
     Type: String
@@ -28,14 +31,10 @@ Parameters:
     Default: 2
     Description: Aurora Serverless v2 maximum capacity (ACU).
 
-  InitZipBucket:
-    Type: String
-    Description: S3 bucket holding the DB-init Lambda zip (from the pipeline).
-
-  InitZipKey:
-    Type: String
-    Description: S3 key of the DB-init Lambda zip (from the pipeline).
-
+# ---------------------------------------------------------------------------
+# Networking — a minimal VPC. Aurora and RDS Proxy must live in a VPC;
+# the Lambda joins it to reach the proxy over private subnets.
+# ---------------------------------------------------------------------------
 Resources:
   Vpc:
     Type: AWS::EC2::VPC
@@ -133,6 +132,7 @@ Resources:
       ToPort: 443
       SourceSecurityGroupId: !Ref LambdaSecurityGroup
 
+  # ------------------------------------------------------------------ Secrets
   # DB master credentials. RDS can generate the password for us.
   DBSecret:
     Type: AWS::SecretsManager::Secret
@@ -151,6 +151,7 @@ Resources:
       Name: mathquiz/flask-secret-key
       SecretString: !Ref FlaskSecretKey
 
+  # ------------------------------------------------------------------ Aurora Serverless v2
   DBSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
     Properties:
@@ -273,60 +274,7 @@ Resources:
           DB_SECRET_ARN: !Ref DBSecret
           FLASK_SECRET_ARN: !Ref FlaskSecret
 
-  # A zip Lambda that loads schema.sql + seed_data.sql into Aurora on stack Create.
-  # Runs in the VPC so it can reach the RDS Proxy. Invoked once by InitDatabase below.
-  DbInitRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal: { Service: lambda.amazonaws.com }
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
-      Policies:
-        - PolicyName: read-db-secret
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action: [secretsmanager:GetSecretValue]
-                Resource: !Ref DBSecret
-
-  DbInitFunction:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: mathquiz-db-init
-      Handler: db_init.handler
-      Runtime: python3.12
-      Timeout: 200
-      MemorySize: 256
-      Role: !GetAtt DbInitRole.Arn
-      Code:
-        S3Bucket: !Ref InitZipBucket
-        S3Key: !Ref InitZipKey
-      VpcConfig:
-        SubnetIds: [!Ref PrivateSubnetA, !Ref PrivateSubnetB]
-        SecurityGroupIds: [!Ref LambdaSecurityGroup]
-      Environment:
-        Variables:
-          DB_HOST: !GetAtt DBProxy.Endpoint
-          DB_PORT: '3306'
-          DB_NAME: !Ref DBName
-          # The init function reads creds directly from env (resolved from the secret).
-          DB_USER: !Sub '{{resolve:secretsmanager:${DBSecret}:SecretString:username}}'
-          DB_PASSWORD: !Sub '{{resolve:secretsmanager:${DBSecret}:SecretString:password}}'
-
-  # The custom resource triggers the init function. DependsOn ensures Aurora,
-  # the proxy target, and the SG rule all exist before it runs.
-  InitDatabase:
-    Type: AWS::CloudFormation::CustomResource
-    DependsOn: [ProxyTargetGroup, DBInstance, DBIngressFromProxy, ProxyIngressFromLambda]
-    Properties:
-      ServiceToken: !GetAtt DbInitFunction.Arn
-
+  # ------------------------------------------------------------------ HTTP API Gateway
   HttpApi:
     Type: AWS::ApiGatewayV2::Api
     Properties:
@@ -370,6 +318,9 @@ Resources:
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*'
 
+# ---------------------------------------------------------------------------
+# Outputs
+# ---------------------------------------------------------------------------
 Outputs:
   ApiUrl:
     Description: Public URL of the MathQuiz app
