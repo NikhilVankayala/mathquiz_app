@@ -63,13 +63,27 @@ def init_db():
 
         cursor.execute("SELECT COUNT(*) FROM topics")
         (count,) = cursor.fetchone()
-        if count == 0:
+        print(f"init_db: topics count before seed = {count}")
+        if True:  # TEMPORARY: force a clean reseed once, then revert to `if count == 0:`
+            # Wipe existing data so the reseed can't hit duplicate-key errors.
+            cursor.execute("SET FOREIGN_KEY_CHECKS=0")
+            for t in ['question_result', 'quiz_results', 'quizzes', 'questions', 'topics']:
+                cursor.execute(f"TRUNCATE TABLE {t}")
+            cursor.execute("SET FOREIGN_KEY_CHECKS=1")
+
+            seed_count = 0
+            seed_errors = 0
             with open(os.path.join(here, 'seed_data.sql'), 'r', encoding='utf-8') as f:
                 for stmt in f.read().split(';'):
                     if stmt.strip():
-                        cursor.execute(stmt)
+                        try:
+                            cursor.execute(stmt)
+                            seed_count += 1
+                        except Exception as e:
+                            seed_errors += 1
+                            print(f"init_db seed statement failed: {e} :: {stmt[:120]}")
             conn.commit()
-            print("init_db: seed loaded")
+            print(f"init_db: seed done — {seed_count} statements ok, {seed_errors} failed")
         else:
             print(f"init_db: topics already has {count} rows, skipped seed")
     finally:
