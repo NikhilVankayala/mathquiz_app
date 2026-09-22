@@ -1,3 +1,4 @@
+
 import os
 import json
 import urllib.request
@@ -48,17 +49,25 @@ def handler(event, context):
     conn = None
     cursor = None
     try:
-        conn = mysql.connector.connect(
-            host=os.environ["DB_HOST"],
-            port=int(os.environ.get("DB_PORT", 3306)),
-            user=os.environ["DB_USER"],
-            password=os.environ["DB_PASSWORD"],
-            database=os.environ["DB_NAME"],
-            # RDS Proxy has RequireTLS=true. Use TLS but skip cert verification
-            # (the proxy uses an AWS-managed cert; verifying it needs the RDS CA bundle).
-            ssl_disabled=False,
-            tls_versions=["TLSv1.2"],
-        )
+        import time
+        last_err = None
+        for attempt in range(1, 11):
+            try:
+                conn = mysql.connector.connect(
+                    host=os.environ["DB_HOST"],
+                    port=int(os.environ.get("DB_PORT", 3306)),
+                    user=os.environ["DB_USER"],
+                    password=os.environ["DB_PASSWORD"],
+                    database=os.environ["DB_NAME"],
+                    connection_timeout=10,
+                )
+                break
+            except mysql.connector.Error as e:
+                last_err = e
+                time.sleep(min(5 * attempt, 20))
+        if conn is None:
+            raise RuntimeError(f"Could not connect after retries: {last_err}")
+
         cursor = conn.cursor()
 
         # Load schema (safe to run once on a fresh DB).

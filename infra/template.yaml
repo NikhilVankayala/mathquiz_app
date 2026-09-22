@@ -301,7 +301,7 @@ Resources:
       FunctionName: mathquiz-db-init
       Handler: db_init.handler
       Runtime: python3.12
-      Timeout: 120
+      Timeout: 200
       MemorySize: 256
       Role: !GetAtt DbInitRole.Arn
       Code:
