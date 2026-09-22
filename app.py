@@ -8,45 +8,72 @@ import boto3
 
 app = Flask(__name__)
 
+
+def _load_secret(arn):
+    """Fetch a secret string from Secrets Manager (used on AWS)."""
+    client = boto3.client('secretsmanager')
+    return client.get_secret_value(SecretId=arn)['SecretString']
+
+
+def _ensure_db_credentials():
+    """Populate DB_USER / DB_PASSWORD from Secrets Manager if not already set.
+    Safe to call repeatedly; does nothing once creds are in the environment."""
+    if os.getenv('DB_SECRET_ARN') and not os.getenv('DB_PASSWORD'):
+        db_secret = json.loads(_load_secret(os.environ['DB_SECRET_ARN']))
+        os.environ['DB_USER'] = db_secret['username']
+        os.environ['DB_PASSWORD'] = db_secret['password']
+
+
+# --- Flask secret key + DB creds, loaded at import on AWS ---
+_flask_secret_arn = os.getenv('FLASK_SECRET_ARN')
+if _flask_secret_arn:
+    app.secret_key = _load_secret(_flask_secret_arn)
+    _ensure_db_credentials()
+else:
+    app.secret_key = os.getenv('FLASK_SECRET_KEY', 'dev-only-key')
+
+
 def init_db():
     """
-    Ensure the schema and seed data exist. Safe to call on every cold start:
-    it checks whether tables/rows already exist and does nothing if so.
-    Only runs the heavy load once, on a genuinely empty database.
+    Ensure the schema and seed data exist. Idempotent: loads schema only if the
+    'topics' table is missing, and seeds only if 'topics' is empty. Loads DB
+    credentials first so it never connects as the default root/no-password.
     """
-    import os
+    _ensure_db_credentials()
+
+    here = os.path.dirname(os.path.abspath(__file__))
     conn = get_connection()
     cursor = conn.cursor()
     try:
-        # Is the schema already there? Check for a known table.
         cursor.execute("SHOW TABLES LIKE 'topics'")
         has_schema = cursor.fetchone() is not None
 
         if not has_schema:
-            # Load schema.sql, statement by statement.
-            here = os.path.dirname(os.path.abspath(__file__))
             with open(os.path.join(here, 'schema.sql'), 'r', encoding='utf-8') as f:
-                for stmt in f.read().split(';'):
-                    if stmt.strip():
-                        cursor.execute(stmt)
+                # multi=True lets mysql-connector run the whole file correctly,
+                # including statements the naive ';' split would mangle.
+                for _ in cursor.execute(f.read(), multi=True):
+                    pass
             conn.commit()
+            print("init_db: schema loaded")
 
-        # Seed only if topics is empty.
         cursor.execute("SELECT COUNT(*) FROM topics")
         (count,) = cursor.fetchone()
         if count == 0:
-            here = os.path.dirname(os.path.abspath(__file__))
             with open(os.path.join(here, 'seed_data.sql'), 'r', encoding='utf-8') as f:
-                for stmt in f.read().split(';'):
-                    if stmt.strip():
-                        cursor.execute(stmt)
+                for _ in cursor.execute(f.read(), multi=True):
+                    pass
             conn.commit()
+            print("init_db: seed loaded")
+        else:
+            print(f"init_db: topics already has {count} rows, skipped seed")
     finally:
         cursor.close()
         conn.close()
 
 
 _db_initialized = False
+
 
 @app.before_request
 def _ensure_db():
@@ -60,21 +87,6 @@ def _ensure_db():
             print(f"init_db error: {e}")
     _db_initialized = True
 
-def _load_secret(arn):
-    """Fetch a secret string from Secrets Manager (used on AWS)."""
-    client = boto3.client('secretsmanager')
-    return client.get_secret_value(SecretId=arn)['SecretString']
-
-# On AWS the secret ARNs are injected as env vars; locally we fall back to a dev key.
-_flask_secret_arn = os.getenv('FLASK_SECRET_ARN')
-if _flask_secret_arn:
-    app.secret_key = _load_secret(_flask_secret_arn)
-    # Populate DB_USER / DB_PASSWORD from the DB secret so models/db.py works unchanged.
-    _db_secret = json.loads(_load_secret(os.environ['DB_SECRET_ARN']))
-    os.environ['DB_USER'] = _db_secret['username']
-    os.environ['DB_PASSWORD'] = _db_secret['password']
-else:
-    app.secret_key = os.getenv('FLASK_SECRET_KEY', 'dev-only-key')
 
 @app.route('/')
 def home():
@@ -107,7 +119,7 @@ def signup():
             if existing_username:
                 flash('Username is already taken. Please choose another one.', 'danger')
                 return redirect('/signup')
-            
+
             cursor.execute("""
                 INSERT INTO users (name, username, email, password, grade_level, phone_number)
                 VALUES (%s, %s, %s, %s, %s, %s)
@@ -126,7 +138,6 @@ def signup():
     return render_template('signup.html')
 
 @app.route('/login', methods=['GET', 'POST'])
-
 def login():
     if request.method == 'POST':
         username = request.form['username']
@@ -158,7 +169,7 @@ def dashboard():
     if 'user_id' not in session:
         return redirect('/login')
     grade_level = session.get('grade_level')
-    username = session.get('username') 
+    username = session.get('username')
     return render_template('dashboard.html', grade_level=grade_level, username=username)
 
 @app.route('/topics/<int:grade>')
@@ -170,11 +181,9 @@ def topics(grade):
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
 
-    # Get all topics for this grade
     cursor.execute("SELECT * FROM topics WHERE grade_level = %s", (grade,))
     topics = cursor.fetchall()
 
-    # Fetch all submitted quiz results for this user
     cursor.execute("""
         SELECT qr.score, q.topic_id
         FROM quiz_results qr
@@ -183,7 +192,6 @@ def topics(grade):
     """, (user_id,))
     quiz_data = cursor.fetchall()
 
-    # Track scores per topic
     topic_scores = {}
     attempted_topic_ids = set()
 
@@ -196,14 +204,12 @@ def topics(grade):
             topic_scores[topic_id] = []
         topic_scores[topic_id].append(score)
 
-    # Add completion and attempt status to each topic
     for topic in topics:
         tid = topic['id']
         scores = topic_scores.get(tid, [])
         topic['attempted'] = tid in attempted_topic_ids
         topic['completed'] = any(s >= 8 for s in scores)
 
-    # Check if user has completed all topics in this grade
     all_completed = all(topic['completed'] for topic in topics) if topics else False
 
     cursor.close()
@@ -243,7 +249,6 @@ def quiz(topic_id):
 
     quiz_result_id = session.get('quiz_result_id')
 
-    # Fresh attempt handling
     if not quiz_result_id:
         cursor.execute("""
             INSERT INTO quiz_results (user_id, quiz_id, status)
@@ -252,9 +257,8 @@ def quiz(topic_id):
         conn.commit()
         quiz_result_id = cursor.lastrowid
         session['quiz_result_id'] = quiz_result_id
-        session['per_question_start_time'] = {}  # RESET timers on new quiz
+        session['per_question_start_time'] = {}
 
-    # Load questions
     cursor.execute("SELECT * FROM questions WHERE topic_id = %s", (topic_id,))
     questions = cursor.fetchall()
 
@@ -271,7 +275,6 @@ def quiz(topic_id):
     existing_answer = cursor.fetchone()
     current_question['user_option'] = existing_answer['user_option'] if existing_answer else None
 
-    # --- Per-Question Timer ---
     if 'per_question_start_time' not in session:
         session['per_question_start_time'] = {}
 
@@ -280,9 +283,8 @@ def quiz(topic_id):
 
     start_time = datetime.fromisoformat(session['per_question_start_time'][str(q_index)])
     elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
-    time_left = max(0, 180 - int(elapsed))  # 3 minutes max
+    time_left = max(0, 180 - int(elapsed))
 
-    # --- Handle POST ---
     if request.method == 'POST':
         selected = request.form.get('option')
         is_correct = selected == current_question['correct_option'] if selected else False
@@ -347,7 +349,6 @@ def results(result_id):
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
 
-    # Get quiz result info and associated topic_id (can be NULL)
     cursor.execute("""
         SELECT qr.score, qr.time_taken, qr.status,
                q.topic_id,
@@ -364,21 +365,18 @@ def results(result_id):
 
     topic_id = result['topic_id']
 
-    # Get total number of questions (based on topic_id or cumulative)
     if topic_id:
         cursor.execute("SELECT COUNT(*) AS total FROM questions WHERE topic_id = %s", (topic_id,))
     else:
         cursor.execute("SELECT COUNT(*) AS total FROM questions")
     result['total_questions'] = cursor.fetchone()['total']
 
-    # Format time
     time_taken_sec = result['time_taken'] or 0
     minutes, seconds = divmod(time_taken_sec, 60)
     formatted_time = f"{minutes}m {seconds}s"
 
-    # Get each answered question and user responses
     cursor.execute("""
-        SELECT 
+        SELECT
             qs.question_text,
             qs.option_a, qs.option_b, qs.option_c, qs.option_d,
             qs.correct_option,
@@ -416,7 +414,6 @@ def past_attempts(topic_id):
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
 
-    # Fetch all past quiz attempts by this user for this topic
     cursor.execute("""
         SELECT qr.id AS result_id, qr.score, qr.time_taken, qr.creation_time
         FROM quiz_results qr
@@ -426,7 +423,6 @@ def past_attempts(topic_id):
     """, (user_id, topic_id))
     attempts = cursor.fetchall()
 
-    # Fetch topic name
     cursor.execute("SELECT name FROM topics WHERE id = %s", (topic_id,))
     topic = cursor.fetchone()
 
@@ -434,7 +430,7 @@ def past_attempts(topic_id):
 
     for attempt in attempts:
         cursor.execute("""
-            SELECT 
+            SELECT
                 qs.question_text,
                 qs.option_a, qs.option_b, qs.option_c, qs.option_d,
                 qs.correct_option,
@@ -465,10 +461,9 @@ def past_attempts(topic_id):
 
 @app.route('/logout')
 def logout():
-    session.clear()  
-    flash('You have been signed out.', 'info')  
-    return redirect('/login')  
-
+    session.clear()
+    flash('You have been signed out.', 'info')
+    return redirect('/login')
 
 
 if __name__ == '__main__':
