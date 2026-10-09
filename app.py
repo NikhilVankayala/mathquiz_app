@@ -64,8 +64,7 @@ def init_db():
         cursor.execute("SELECT COUNT(*) FROM topics")
         (count,) = cursor.fetchone()
         print(f"init_db: topics count before seed = {count}")
-        if count == 0:  # TEMPORARY: force a clean reseed once, then revert to `if count == 0:`
-            # Wipe existing data so the reseed can't hit duplicate-key errors.
+        if count == 0: 
             cursor.execute("SET FOREIGN_KEY_CHECKS=0")
             for t in ['question_result', 'quiz_results', 'quizzes', 'questions', 'topics']:
                 cursor.execute(f"TRUNCATE TABLE {t}")
@@ -99,12 +98,14 @@ def _ensure_db():
     global _db_initialized
     if _db_initialized:
         return
-    if os.getenv('DB_SECRET_ARN'):
-        try:
-            init_db()
-        except Exception as e:
-            print(f"init_db error: {e}")
-    _db_initialized = True
+    if not os.getenv('DB_SECRET_ARN'):   
+        _db_initialized = True
+        return
+    try:
+        init_db()
+        _db_initialized = True           
+    except Exception as e:
+        print(f"init_db error: {e}") 
 
 
 @app.route('/')
