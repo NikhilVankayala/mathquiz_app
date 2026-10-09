@@ -1,47 +1,78 @@
-MathQuiz App is a dynamic, web-based platform designed with Flask and MySQL, offering engaging, topic-based math quizzes for high school students (Grades 9–12). It provides a comprehensive learning experience with features like secure user authentication, interactive timed questions, a personalized performance dashboard, and full quiz history. Built with modern web technologies and Docker support, it ensures easy deployment and a smooth user experience.
-
- Features
-. User Authentication: Secure login and signup processes with hashed passwords for data protection.
-
-. Topic-Based Quizzes: Access a variety of math topics specifically tailored for high school grade levels.
-
-. Timed Questions: Each question comes with a countdown timer to enhance focus and challenge.
-
-. Final Cumulative Quiz: A unique feature that re-tests concepts based on past mistakes, reinforcing learning.
-
-. Dashboard & Past Attempts: Track your progress with a personalized dashboard and review detailed history of all your quiz attempts.
-
-. Diverse Question Types: Engage with a mix of multiple-choice and true/false questions, covering both theoretical concepts and calculation-based problems.
-
-. Docker Support: Streamlined deployment with Docker, allowing you to run the entire application with a single command.
-
-. Robust Test Coverage: Includes pytest unit tests with mock data to ensure application reliability and stability.
-
-ech Stack
-Backend: Python (Flask)
-
-Frontend: HTML5, CSS3, Vanilla JavaScript
-
-Database: MySQL
-
-Testing: 'pytest', 'coverage.py'
-
-Containerization: Docker
-
-Authentication: Flask sessions + werkzeug.security
-
+# MathQuiz App
+ 
+A Flask and MySQL web app that gives high school students (grades 9–12) timed, topic-based math quizzes. Students sign up, pick a topic for their grade, answer timed multiple-choice and true/false questions, and review their scores and past attempts.
+ 
+The app is deployed on a serverless AWS stack (Lambda, API Gateway, Aurora Serverless v2, RDS Proxy), with a CI/CD pipeline that tests, builds, and deploys every push to `main`.
+ 
+## Features
+ 
+- **User accounts:** signup and login, with passwords stored as salted hashes (Werkzeug).
+- **Topic-based quizzes:** math topics organized by grade level.
+- **Timed questions:** each question has a countdown timer.
+- **Cumulative quizzes:** grade-wide quizzes that draw on questions across topics.
+- **Dashboard and past attempts:** each attempt's score, time taken, and answers are saved for review.
+- **Question types:** multiple choice and true/false, with LaTeX-rendered math and explanations.
+- **Tests:** pytest suite run against a MySQL test database on every build.
+## Tech Stack
+ 
+| Layer | Technology |
+|---|---|
+| Backend | Python, Flask |
+| Frontend | HTML (Jinja2 templates), CSS, vanilla JavaScript |
+| Database | MySQL (Aurora Serverless v2, MySQL-compatible, on AWS) |
+| Auth | Flask sessions, `werkzeug.security` |
+| Testing | pytest, coverage.py |
+| Hosting | AWS Lambda (container image), API Gateway (HTTP API) |
+| Infrastructure as code | AWS CloudFormation |
+| CI/CD | AWS CodePipeline, CodeBuild |
+ 
+## AWS Architecture
+ 
 ```
-Project Structure
+Browser
+   │
+   ▼
+API Gateway (HTTP API)
+   │
+   ▼
+Lambda (Flask app in a container: Lambda Web Adapter + gunicorn)
+   │                         │
+   │ private VPC             │ VPC endpoint
+   ▼                         ▼
+RDS Proxy               Secrets Manager
+   │                    (DB credentials, Flask secret key)
+   ▼
+Aurora Serverless v2 (MySQL)
+```
+ 
+- **Lambda** runs the Flask app as a container image stored in **ECR**. The AWS Lambda Web Adapter lets the unmodified Flask app run behind gunicorn.
+- **API Gateway** provides the public HTTPS endpoint.
+- **Aurora Serverless v2** holds the data and scales capacity with load.
+- **RDS Proxy** pools database connections so many short-lived Lambda instances don't exhaust the database.
+- **VPC:** Lambda, the proxy, and Aurora run in private subnets with no internet access. A **Secrets Manager VPC interface endpoint** lets Lambda fetch secrets privately.
+- **Secrets Manager** stores the database credentials and Flask's session-signing key. The app fetches them at startup, so no secrets live in code or configuration.
+- **Database setup:** on the first request after a deploy, the app creates the schema and loads seed data if the database is empty (`init_db()` in `app.py`). This step is idempotent and does nothing once the data exists.
+## CI/CD Pipeline
+ 
+Every push to `main` runs through CodePipeline:
+ 
+1. **Source:** pulls the repo from GitHub through a CodeConnections (CodeStar) connection.
+2. **Build (CodeBuild, `buildspec.yml`):** runs pytest against a temporary MySQL database, then builds the image from `Dockerfile.lambda` and pushes it to ECR.
+3. **Deploy (CloudFormation):** updates the `mathquiz-app` stack from `infra/template.yaml` with the new image.
+The pipeline itself is defined in `infra/pipeline.yaml` and deployed once as the `mathquiz-pipeline` stack.
+ 
+## Project Structure
+ 
+```
 mathquiz_app/
-│
-├── .github/                  # GitHub Actions workflows
-│   └── workflows/
-│       └── python-app.yml    # CI/CD pipeline for Python tests
-├── models/                   # Database models and connection logic
-│   ├── db.py                 # MySQL database connection
-│   └── __pycache__/          # Python bytecode cache
-├── static/                   # Static assets (CSS, JS, images)
-├── templates/                # HTML Jinja2 templates
+├── infra/
+│   ├── pipeline.yaml       # CloudFormation: CodePipeline, CodeBuild, ECR, IAM
+│   └── template.yaml       # CloudFormation: VPC, Aurora, RDS Proxy, Lambda, API Gateway
+├── models/
+│   └── db.py               # MySQL connection helper (reads DB settings from env vars)
+├── static/
+│   └── style.css
+├── templates/              # Jinja2 HTML templates
 │   ├── dashboard.html
 │   ├── home.html
 │   ├── login.html
@@ -50,78 +81,97 @@ mathquiz_app/
 │   ├── result.html
 │   ├── signup.html
 │   └── topics.html
-├── venv/                     # Python virtual environment
-├── .coverage                 # Coverage report data
-├── .dockerignore             # Files to ignore in Docker build context
-├── .gitignore                # Files/directories to ignore in Git
-├── app.py                    # Main Flask application
-├── Dockerfile                # Docker build instructions
-├── README.md                 # Project documentation (this file)
-├── requirements.txt          # Python project dependencies
-├── schema.sql                # SQL script for database schema
-├── seed_data.sql             # SQL script for initial application data
-├── test_app.py               # Pytest unit tests for the application
-├── test_data.sql             # SQL script for additional test-specific data
-└── __pycache__/              # Python bytecode cache
+├── app.py                  # Flask app: routes, auth, quiz logic, DB setup
+├── buildspec.yml           # CodeBuild steps: test, build, push image
+├── Dockerfile.lambda       # Container image for AWS Lambda
+├── requirements.txt        # Python dependencies
+├── schema.sql              # Database schema
+├── seed_data.sql           # Topics, quizzes, and questions
+├── test_app.py             # pytest tests
+├── test_data.sql           # Test fixtures
+├── .dockerignore
+├── .gitignore
+└── README.md
 ```
-Getting Started
-Follow these steps to set up and run the MathQuiz App locally.
-
-1. Clone the Repository
-```
-git clone [https://github.com/your-username/mathquiz_app.git](https://github.com/your-username/mathquiz_app.git)
+ 
+## Running Locally
+ 
+### 1. Clone the repository
+ 
+```bash
+git clone https://github.com/NikhilVankayala/mathquiz_app.git
 cd mathquiz_app
 ```
-2. Create a Virtual Environment
-It's recommended to use a virtual environment to manage project dependencies.
-```
+ 
+### 2. Create a virtual environment and install dependencies
+ 
+```bash
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-3. Install Requirements
-Install all necessary Python packages.
-```
+source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
-4. Set Up MySQL Database
-Ensure you have MySQL installed and running. Then, create the database schema and populate it with initial data.
+ 
+### 3. Set up MySQL
+ 
+With MySQL installed and running:
+ 
+```bash
+mysql -u root -p -e "CREATE DATABASE mathquiz_app"
+mysql -u root -p mathquiz_app < schema.sql
+mysql -u root -p mathquiz_app < seed_data.sql
 ```
-# Connect to MySQL as root and run schema and seed data
-mysql -u root -p < schema.sql
-mysql -u root -p < seed_data.sql
-# If you have test_data.sql for local testing, you might run it here too:
-# mysql -u root -p < test_data.sql
+ 
+Locally the app doesn't set up the database automatically. That only happens on AWS.
+ 
+### 4. Configure the connection
+ 
+`models/db.py` reads the connection settings from environment variables:
+ 
+```bash
+export DB_HOST=localhost
+export DB_USER=root
+export DB_PASSWORD=your_password
+export DB_NAME=mathquiz_app
+export FLASK_SECRET_KEY=any-local-dev-value
 ```
-5. Run the Application
-Start the Flask development server.
-```
+ 
+### 5. Run the app
+ 
+```bash
 flask run
 ```
-The app will typically be accessible at http://127.0.0.1:5000/.
-
-6. Run Tests
-To run the unit tests and generate a coverage report:
+ 
+Open http://127.0.0.1:5000/.
+ 
+### 6. Run the tests
+ 
+```bash
+pytest --cov --cov-report=html
 ```
-pytest --cov
+ 
+The coverage report is written to `htmlcov/`.
+ 
+## Deploying to AWS
+ 
+1. Deploy the pipeline stack once from `infra/pipeline.yaml` as `mathquiz-pipeline`, supplying the parameters it defines.
+2. In the AWS console, approve the GitHub connection under **Developer Tools → Settings → Connections**.
+3. Push to `main`. The pipeline tests, builds, and deploys the `mathquiz-app` stack.
+4. Get the app URL:
+```bash
+   aws cloudformation describe-stacks --stack-name mathquiz-app --region us-west-2 \
+     --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue" --output text
 ```
-This will execute all tests defined in test_app.py and generate a coverage report in the htmlcov/ directory.
-
-Docker Instructions
-To build and run the application using Docker:
-```
-docker build -t mathquiz_app .
-docker run -p 5000:5000 mathquiz_app
-```
-Note: When running with Docker, ensure your container or host is connected to a MySQL instance and that the necessary environment variables (e.g., DB_HOST, DB_USER, DB_PASSWORD, DB_NAME) are set correctly for the application to connect to the database.
-
-Future Improvements
-. Admin Panel: Develop an administrative interface for managing users, quizzes, and question content.
-
-. Leaderboards & Achievements: Implement a system to track and display user performance, fostering friendly competition.
-
-. Mobile-Responsive Design: Enhance the UI/UX for seamless access and optimal display on various mobile devices.
-
-. Export Quiz Reports: Add functionality to export detailed quiz performance reports to PDF format.
-
-. API Endpoints: Create RESTful API endpoints for external integrations and data access.
-
+ 
+The first request after a deploy is slower while the database is set up.
+ 
+**Cost note:** Aurora Serverless v2 and RDS Proxy bill by the hour. To pause costs, delete the `mathquiz-app` stack and re-run the pipeline when you need the app again (about 15 minutes).
+ 
+## Future Improvements
+ 
+- Admin panel for managing users, topics, and questions
+- Leaderboards and achievements
+- Mobile-responsive layout
+- PDF export of quiz reports
+- Schema migrations with a migration tool instead of raw SQL files
+- A database lock around first-run setup to rule out concurrent seeding
+ 
