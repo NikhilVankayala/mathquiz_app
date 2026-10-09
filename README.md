@@ -21,12 +21,12 @@ The app is deployed on a serverless AWS stack (Lambda, API Gateway, Aurora Serve
 | Frontend | HTML (Jinja2 templates), CSS, vanilla JavaScript |
 | Database | MySQL (Aurora Serverless v2, MySQL-compatible, on AWS) |
 | Auth | Flask sessions, `werkzeug.security` |
-| Testing | pytest, coverage.py |
+| Testing | pytest, coverage |
 | Hosting | AWS Lambda (container image), API Gateway (HTTP API) |
 | Infrastructure as code | AWS CloudFormation |
 | CI/CD | AWS CodePipeline, CodeBuild |
  
-## AWS Architecture
+## Application Architecture
  
 ```
 Browser
