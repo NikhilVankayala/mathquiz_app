@@ -392,86 +392,40 @@ def results(result_id):
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
 
-    cursor.execute("""
-        SELECT qr.score, qr.time_taken, qr.status,
-               q.topic_id,
-               qr.creation_time
-        FROM quiz_results qr
-        JOIN quizzes q ON qr.quiz_id = q.id
-        WHERE qr.id = %s
-    """, (result_id,))
-    result = cursor.fetchone()
+    try:
+        cursor.execute("""
+            SELECT qr.score, qr.time_taken, qr.status,
+                   q.topic_id, q.grade_level,
+                   qr.creation_time
+            FROM quiz_results qr
+            JOIN quizzes q ON qr.quiz_id = q.id
+            WHERE qr.id = %s AND qr.user_id = %s AND qr.status = 'submitted'
+        """, (result_id, session['user_id']))
+        result = cursor.fetchone()
 
-    if not result:
-        flash("Result not found.", "danger")
-        return redirect('/dashboard')
+        # Someone else's attempt looks exactly like a missing one,
+        # so the response doesn't reveal which IDs exist.
+        if not result:
+            flash("Result not found.", "danger")
+            return redirect('/dashboard')
 
-    topic_id = result['topic_id']
+        topic_id = result['topic_id']
 
-    if topic_id:
-        cursor.execute("SELECT COUNT(*) AS total FROM questions WHERE topic_id = %s", (topic_id,))
-    else:
-        cursor.execute("SELECT COUNT(*) AS total FROM questions")
-    result['total_questions'] = cursor.fetchone()['total']
+        if topic_id:
+            cursor.execute("SELECT COUNT(*) AS total FROM questions WHERE topic_id = %s", (topic_id,))
+        else:
+            cursor.execute("""
+                SELECT COUNT(*) AS total
+                FROM questions qs
+                JOIN topics t ON qs.topic_id = t.id
+                WHERE t.grade_level = %s
+            """, (result['grade_level'],))
+        result['total_questions'] = cursor.fetchone()['total']
 
-    time_taken_sec = result['time_taken'] or 0
-    minutes, seconds = divmod(time_taken_sec, 60)
-    formatted_time = f"{minutes}m {seconds}s"
+        time_taken_sec = result['time_taken'] or 0
+        minutes, seconds = divmod(time_taken_sec, 60)
+        formatted_time = f"{minutes}m {seconds}s"
 
-    cursor.execute("""
-        SELECT
-            qs.question_text,
-            qs.option_a, qs.option_b, qs.option_c, qs.option_d,
-            qs.correct_option,
-            qs.explanation,
-            qr.user_option,
-            qr.is_correct,
-            TIMESTAMPDIFF(SECOND, qr.create_time, qr.update_time) AS time_spent_seconds
-        FROM question_result qr
-        JOIN questions qs ON qr.question_id = qs.id
-        WHERE qr.quiz_result_id = %s
-        ORDER BY qs.id
-    """, (result_id,))
-    question_details = cursor.fetchall()
-
-    for q in question_details:
-        secs = q['time_spent_seconds'] or 0
-        q['time_spent_formatted'] = f"{secs // 60}m {secs % 60}s"
-
-    cursor.close()
-    conn.close()
-
-    return render_template(
-        "result.html",
-        result=result,
-        questions=question_details,
-        formatted_time=formatted_time
-    )
-
-@app.route('/attempts/<int:topic_id>')
-def past_attempts(topic_id):
-    if 'user_id' not in session:
-        return redirect('/login')
-
-    user_id = session['user_id']
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-
-    cursor.execute("""
-        SELECT qr.id AS result_id, qr.score, qr.time_taken, qr.creation_time
-        FROM quiz_results qr
-        JOIN quizzes q ON qr.quiz_id = q.id
-        WHERE qr.user_id = %s AND q.topic_id = %s AND qr.status = 'submitted'
-        ORDER BY qr.creation_time DESC
-    """, (user_id, topic_id))
-    attempts = cursor.fetchall()
-
-    cursor.execute("SELECT name FROM topics WHERE id = %s", (topic_id,))
-    topic = cursor.fetchone()
-
-    all_attempt_data = []
-
-    for attempt in attempts:
         cursor.execute("""
             SELECT
                 qs.question_text,
@@ -485,23 +439,83 @@ def past_attempts(topic_id):
             JOIN questions qs ON qr.question_id = qs.id
             WHERE qr.quiz_result_id = %s
             ORDER BY qs.id
-        """, (attempt['result_id'],))
-        questions = cursor.fetchall()
+        """, (result_id,))
+        question_details = cursor.fetchall()
 
-        for q in questions:
+        for q in question_details:
             secs = q['time_spent_seconds'] or 0
             q['time_spent_formatted'] = f"{secs // 60}m {secs % 60}s"
 
-        attempt['questions'] = questions
-        all_attempt_data.append(attempt)
+        return render_template(
+            "result.html",
+            result=result,
+            questions=question_details,
+            formatted_time=formatted_time
+        )
+    finally:
+        cursor.close()
+        conn.close()
 
-    cursor.close()
-    conn.close()
+@app.route('/attempts/<int:topic_id>')
+def past_attempts(topic_id):
+    if 'user_id' not in session:
+        return redirect('/login')
 
-    return render_template('past_attempts.html',
-                           topic=topic,
-                           attempts=all_attempt_data)
+    user_id = session['user_id']
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
 
+    try:
+        cursor.execute("SELECT name FROM topics WHERE id = %s", (topic_id,))
+        topic = cursor.fetchone()
+        if not topic:
+            flash("Topic not found.", "danger")
+            return redirect('/dashboard')
+
+        cursor.execute("""
+            SELECT qr.id AS result_id, qr.score, qr.time_taken, qr.creation_time
+            FROM quiz_results qr
+            JOIN quizzes q ON qr.quiz_id = q.id
+            WHERE qr.user_id = %s AND q.topic_id = %s AND qr.status = 'submitted'
+            ORDER BY qr.creation_time DESC
+        """, (user_id, topic_id))
+        attempts = cursor.fetchall()
+
+        questions_by_attempt = {a['result_id']: [] for a in attempts}
+
+        if attempts:
+            result_ids = list(questions_by_attempt.keys())
+            placeholders = ", ".join(["%s"] * len(result_ids))   # "%s, %s, %s"
+            cursor.execute(f"""
+                SELECT
+                    qr.quiz_result_id,
+                    qs.question_text,
+                    qs.option_a, qs.option_b, qs.option_c, qs.option_d,
+                    qs.correct_option,
+                    qs.explanation,
+                    qr.user_option,
+                    qr.is_correct,
+                    TIMESTAMPDIFF(SECOND, qr.create_time, qr.update_time) AS time_spent_seconds
+                FROM question_result qr
+                JOIN questions qs ON qr.question_id = qs.id
+                WHERE qr.quiz_result_id IN ({placeholders})
+                ORDER BY qr.quiz_result_id, qs.id
+            """, result_ids)
+
+            for q in cursor.fetchall():
+                secs = q['time_spent_seconds'] or 0
+                q['time_spent_formatted'] = f"{secs // 60}m {secs % 60}s"
+                questions_by_attempt[q['quiz_result_id']].append(q)
+
+        for attempt in attempts:
+            attempt['questions'] = questions_by_attempt[attempt['result_id']]
+
+        return render_template('past_attempts.html',
+                               topic=topic,
+                               attempts=attempts)
+    finally:
+        cursor.close()
+        conn.close()
 @app.route('/logout')
 def logout():
     session.clear()
