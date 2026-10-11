@@ -248,118 +248,141 @@ def quiz(topic_id):
     if 'user_id' not in session:
         return redirect('/login')
 
+    user_id = session['user_id']
+
+    try:
+        q_index = int(request.args.get('q', 0))
+    except ValueError:
+        q_index = 0
+    if q_index < 0:
+        q_index = 0
+
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
-    user_id = session['user_id']
-    q_index = int(request.args.get('q', 0))
 
-    cursor.execute("SELECT id FROM quizzes WHERE topic_id = %s", (topic_id,))
-    quiz = cursor.fetchone()
+    try:
+        cursor.execute("SELECT id FROM quizzes WHERE topic_id = %s", (topic_id,))
+        quiz = cursor.fetchone()
 
-    if not quiz:
-        grade_level = session['grade_level']
-        cursor.execute("""
-            INSERT INTO quizzes (topic_id, grade_level, time_limit)
-            VALUES (%s, %s, %s)
-        """, (topic_id, grade_level, 600))
-        conn.commit()
-        quiz_id = cursor.lastrowid
-    else:
-        quiz_id = quiz['id']
+        if not quiz:
+            grade_level = session['grade_level']
+            cursor.execute("""
+                INSERT INTO quizzes (topic_id, grade_level, time_limit)
+                VALUES (%s, %s, %s)
+            """, (topic_id, grade_level, 600))
+            conn.commit()
+            quiz_id = cursor.lastrowid
+        else:
+            quiz_id = quiz['id']
 
-    quiz_result_id = session.get('quiz_result_id')
+        quiz_result_id = session.get('quiz_result_id')
+        valid_attempt = None
+        if quiz_result_id:
+            cursor.execute("""
+                SELECT id FROM quiz_results
+                WHERE id = %s AND user_id = %s AND quiz_id = %s AND status = 'in_progress'
+            """, (quiz_result_id, user_id, quiz_id))
+            valid_attempt = cursor.fetchone()
 
-    if not quiz_result_id:
-        cursor.execute("""
-            INSERT INTO quiz_results (user_id, quiz_id, status)
-            VALUES (%s, %s, 'in_progress')
-        """, (user_id, quiz_id))
-        conn.commit()
-        quiz_result_id = cursor.lastrowid
-        session['quiz_result_id'] = quiz_result_id
-        session['per_question_start_time'] = {}
+        if not valid_attempt:
+            cursor.execute("""
+                INSERT INTO quiz_results (user_id, quiz_id, status)
+                VALUES (%s, %s, 'in_progress')
+            """, (user_id, quiz_id))
+            conn.commit()
+            quiz_result_id = cursor.lastrowid
+            session['quiz_result_id'] = quiz_result_id
+            session['per_question_start_time'] = {}
 
-    cursor.execute("SELECT * FROM questions WHERE topic_id = %s", (topic_id,))
-    questions = cursor.fetchall()
+        # FIX (small): ORDER BY makes question order reliable between requests
+        cursor.execute("SELECT * FROM questions WHERE topic_id = %s ORDER BY id", (topic_id,))
+        questions = cursor.fetchall()
 
-    if q_index >= len(questions):
-        flash("You've completed all questions!", "info")
-        return redirect('/dashboard')
+        if q_index >= len(questions):
+            flash("You've completed all questions!", "info")
+            return redirect('/dashboard')
 
-    current_question = questions[q_index]
-
-    cursor.execute("""
-        SELECT user_option FROM question_result
-        WHERE quiz_result_id = %s AND question_id = %s
-    """, (quiz_result_id, current_question['id']))
-    existing_answer = cursor.fetchone()
-    current_question['user_option'] = existing_answer['user_option'] if existing_answer else None
-
-    if 'per_question_start_time' not in session:
-        session['per_question_start_time'] = {}
-
-    if str(q_index) not in session['per_question_start_time']:
-        session['per_question_start_time'][str(q_index)] = datetime.now(timezone.utc).isoformat()
-
-    start_time = datetime.fromisoformat(session['per_question_start_time'][str(q_index)])
-    elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
-    time_left = max(0, 180 - int(elapsed))
-
-    if request.method == 'POST':
-        selected = request.form.get('option')
-        is_correct = selected == current_question['correct_option'] if selected else False
+        current_question = questions[q_index]
 
         cursor.execute("""
-            SELECT id FROM question_result
+            SELECT user_option FROM question_result
             WHERE quiz_result_id = %s AND question_id = %s
         """, (quiz_result_id, current_question['id']))
-        existing = cursor.fetchone()
+        existing_answer = cursor.fetchone()
+        current_question['user_option'] = existing_answer['user_option'] if existing_answer else None
 
-        if existing:
-            cursor.execute("""
-                UPDATE question_result
-                SET user_option = %s, is_correct = %s
-                WHERE id = %s
-            """, (selected, is_correct, existing['id']))
-        else:
-            cursor.execute("""
-                INSERT INTO question_result (quiz_result_id, question_id, user_option, is_correct)
-                VALUES (%s, %s, %s, %s)
-            """, (quiz_result_id, current_question['id'], selected, is_correct))
-        conn.commit()
+        if 'per_question_start_time' not in session:
+            session['per_question_start_time'] = {}
 
-        action = request.form.get('action')
-        if action == "next":
-            return redirect(url_for('quiz', topic_id=topic_id, q=q_index + 1))
-        elif action == "prev" and q_index > 0:
-            return redirect(url_for('quiz', topic_id=topic_id, q=q_index - 1))
-        elif action == "submit":
-            cursor.execute("""
-                SELECT COUNT(*) AS correct FROM question_result
-                WHERE quiz_result_id = %s AND is_correct = TRUE
-            """, (quiz_result_id,))
-            score = cursor.fetchone()['correct']
+        if str(q_index) not in session['per_question_start_time']:
+            session['per_question_start_time'][str(q_index)] = datetime.now(timezone.utc).isoformat()
+            # FIX #4: Flask doesn't notice changes inside a nested dict,
+            # so tell it explicitly that the session needs saving.
+            session.modified = True
+
+        start_time = datetime.fromisoformat(session['per_question_start_time'][str(q_index)])
+        elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
+        time_left = max(0, 180 - int(elapsed))
+
+        if request.method == 'POST':
+            selected = request.form.get('option')
+            is_correct = selected == current_question['correct_option'] if selected else False
 
             cursor.execute("""
-                UPDATE quiz_results
-                SET score = %s, status = 'submitted', time_taken = NOW() - creation_time
-                WHERE id = %s
-            """, (score, quiz_result_id))
+                SELECT id FROM question_result
+                WHERE quiz_result_id = %s AND question_id = %s
+            """, (quiz_result_id, current_question['id']))
+            existing = cursor.fetchone()
+
+            if existing:
+                cursor.execute("""
+                    UPDATE question_result
+                    SET user_option = %s, is_correct = %s
+                    WHERE id = %s
+                """, (selected, is_correct, existing['id']))
+            else:
+                cursor.execute("""
+                    INSERT INTO question_result (quiz_result_id, question_id, user_option, is_correct)
+                    VALUES (%s, %s, %s, %s)
+                """, (quiz_result_id, current_question['id'], selected, is_correct))
             conn.commit()
-            session.pop('quiz_result_id', None)
-            session.pop('per_question_start_time', None)
-            return redirect(url_for('results', result_id=quiz_result_id))
 
-    cursor.close()
-    conn.close()
+            action = request.form.get('action')
+            if action == "next":
+                return redirect(url_for('quiz', topic_id=topic_id, q=q_index + 1))
+            elif action == "prev" and q_index > 0:
+                return redirect(url_for('quiz', topic_id=topic_id, q=q_index - 1))
+            elif action == "submit":
+                cursor.execute("""
+                    SELECT COUNT(*) AS correct FROM question_result
+                    WHERE quiz_result_id = %s AND is_correct = TRUE
+                """, (quiz_result_id,))
+                score = cursor.fetchone()['correct']
 
-    return render_template('quiz_question.html',
-                           question=current_question,
-                           question_number=q_index,
-                           q_index=q_index,
-                           total_questions=len(questions),
-                           topic_id=topic_id,
-                           time_left=time_left)
+                # FIX #1: TIMESTAMPDIFF returns real seconds.
+                # (NOW() - creation_time subtracted the dates as plain numbers.)
+                cursor.execute("""
+                    UPDATE quiz_results
+                    SET score = %s,
+                        status = 'submitted',
+                        time_taken = TIMESTAMPDIFF(SECOND, creation_time, NOW())
+                    WHERE id = %s
+                """, (score, quiz_result_id))
+                conn.commit()
+                session.pop('quiz_result_id', None)
+                session.pop('per_question_start_time', None)
+                return redirect(url_for('results', result_id=quiz_result_id))
+
+        return render_template('quiz_question.html',
+                               question=current_question,
+                               question_number=q_index,
+                               q_index=q_index,
+                               total_questions=len(questions),
+                               topic_id=topic_id,
+                               time_left=time_left)
+    finally:
+        cursor.close()
+        conn.close()
 
 @app.route('/result/<int:result_id>')
 def results(result_id):
