@@ -1,334 +1,417 @@
 import pytest
 from app import app
 from models.db import get_connection
-from datetime import datetime, timezone, timedelta
-import mysql.connector # Ensure this is imported for error handling
+from werkzeug.security import check_password_hash
+import mysql.connector
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
 
 @pytest.fixture
 def client():
     app.config['TESTING'] = True
-    app.config['WTF_CSRF_ENABLED'] = False
     with app.test_client() as client:
         yield client
 
-# Fixture for database cleanup and initial data population before each test
-@pytest.fixture(autouse=True) # autouse=True makes this fixture run automatically for every test
+
+@pytest.fixture(autouse=True)
 def db_cleanup():
+    """Reset the test database to a known state before every test.
+    Runs against mathquiz_test (set in conftest.py locally, buildspec.yml in CI)."""
     conn = None
     cursor = None
     try:
         conn = get_connection()
         cursor = conn.cursor()
 
-        # Disable foreign key checks temporarily for easier truncation
         cursor.execute("SET FOREIGN_KEY_CHECKS = 0;")
-
-        # List tables to truncate in reverse order of dependency if needed,
-        # but with FOREIGN_KEY_CHECKS = 0, order is less critical.
-        # Ensure all tables that tests might write to are included.
-        tables = ['question_result', 'quiz_results', 'quizzes', 'users', 'questions', 'topics']
-        for table in tables:
-            try:
-                # TRUNCATE TABLE is faster than DELETE FROM and resets auto-increment
-                cursor.execute(f"TRUNCATE TABLE {table};")
-            except mysql.connector.Error as err:
-                # Print a warning if a table doesn't exist, but don't fail the test
-                print(f"Warning: Could not truncate table {table}. It might not exist or there's a permission issue: {err}")
-
-        # Re-enable foreign key checks
+        for table in ['question_result', 'quiz_results', 'quizzes', 'users', 'questions', 'topics']:
+            cursor.execute(f"TRUNCATE TABLE {table};")
         cursor.execute("SET FOREIGN_KEY_CHECKS = 1;")
+
+        # Topics: 1 and 10 have questions, 999 deliberately has none
+        cursor.execute("INSERT INTO topics (id, name, grade_level) VALUES (1, 'Algebra Basics', 10);")
+        cursor.execute("INSERT INTO topics (id, name, grade_level) VALUES (10, 'Advanced Algebra', 10);")
+        cursor.execute("INSERT INTO topics (id, name, grade_level) VALUES (999, 'Temp Topic', 10);")
+
+        # Users (plain-text passwords; tests that need a real login sign up instead)
+        cursor.execute("INSERT INTO users (id, name, username, email, password, grade_level, phone_number) "
+                       "VALUES (1, 'Test User', 'testuser', 'test@example.com', 'testpass', 10, '1234567890');")
+        cursor.execute("INSERT INTO users (id, name, username, email, password, grade_level, phone_number) "
+                       "VALUES (2, 'Existing User', 'existinguser', 'existing@example.com', 'some_password', 10, '9876543210');")
+
+        # Topic 1: three questions, correct answers B, B, C
+        cursor.execute("INSERT INTO questions (id, topic_id, question_text, option_a, option_b, option_c, option_d, correct_option) "
+                       "VALUES (1, 1, 'What is 2+2?', '3', '4', '5', '6', 'B');")
+        cursor.execute("INSERT INTO questions (id, topic_id, question_text, option_a, option_b, option_c, option_d, correct_option) "
+                       "VALUES (2, 1, 'What is 5-3?', '1', '2', '3', '4', 'B');")
+        cursor.execute("INSERT INTO questions (id, topic_id, question_text, option_a, option_b, option_c, option_d, correct_option) "
+                       "VALUES (3, 1, 'What is 6*2?', '8', '10', '12', '14', 'C');")
+        # Topic 10: one question (used by the topic-switching test)
+        cursor.execute("INSERT INTO questions (id, topic_id, question_text, option_a, option_b, option_c, option_d, correct_option) "
+                       "VALUES (4, 10, 'What is 3^2?', '6', '9', '12', '27', 'B');")
+
         conn.commit()
-
-        # --- Insert essential test data ---
-        # Ensure topics exist for quizzes
-        cursor.execute("INSERT IGNORE INTO topics (id, name, grade_level) VALUES (1, 'Algebra Basics', 10);")
-        cursor.execute("INSERT IGNORE INTO topics (id, name, grade_level) VALUES (10, 'Advanced Algebra', 10);")
-        cursor.execute("INSERT IGNORE INTO topics (id, name, grade_level) VALUES (999, 'Temp Topic', 10);") # For test_invalid_quiz_id
-
-        # Insert a default user for login, session simulation, and duplicate email test
-        # Use a consistent password for testing, e.g., 'password123' (hashed in real app)
-        # For testing, we don't need actual hashing here, just a placeholder.
-        cursor.execute("INSERT IGNORE INTO users (id, name, username, email, password, grade_level, phone_number) VALUES (1, 'Test User', 'testuser', 'test@example.com', 'testpass', 10, '1234567890');")
-        # Add a user for the duplicate email test's initial state
-        cursor.execute("INSERT IGNORE INTO users (id, name, username, email, password, grade_level, phone_number) VALUES (2, 'Existing User', 'existinguser', 'nikhil.vankayala7@gmail.com', 'some_password', 10, '9876543210');")
-
-
-        # Insert some questions for topic_id 1 to allow quiz tests to run
-        cursor.execute("INSERT IGNORE INTO questions (id, topic_id, question_text, option_a, option_b, option_c, option_d, correct_option) VALUES (1, 1, 'What is 2+2?', 'A. 3', 'B. 4', 'C. 5', 'D. 6', 'B');")
-        cursor.execute("INSERT IGNORE INTO questions (id, topic_id, question_text, option_a, option_b, option_c, option_d, correct_option) VALUES (2, 1, 'What is 5-3?', 'A. 1', 'B. 2', 'C. 3', 'D. 4', 'B');")
-        cursor.execute("INSERT IGNORE INTO questions (id, topic_id, question_text, option_a, option_b, option_c, option_d, correct_option) VALUES (3, 1, 'What is 6*2?', 'A. 8', 'B. 10', 'C. 12', 'D. 14', 'C');")
-
-        conn.commit()
-
     except mysql.connector.Error as err:
         print(f"Database setup/cleanup error: {err}")
         if conn:
-            conn.rollback() # Rollback in case of error during setup
-        raise # Re-raise to ensure the test fails if setup itself fails
+            conn.rollback()
+        raise
     finally:
         if cursor:
             cursor.close()
         if conn:
             conn.close()
 
-    yield # This yields control to the test function
-    # After each test runs, control returns here. No post-test cleanup needed
-    # as the next test will trigger the fixture again for a fresh state.
+    yield
 
 
-# Test 1: Home Page Loads
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def login_as(client, user_id=1, grade_level=10):
+    """Fake a logged-in user by writing straight into the session cookie."""
+    with client.session_transaction() as sess:
+        sess['user_id'] = user_id
+        sess['grade_level'] = grade_level
+
+
+def current_attempt_id(client):
+    with client.session_transaction() as sess:
+        return sess.get('quiz_result_id')
+
+
+def query_one(sql, params=()):
+    """Run a SELECT against the test DB and return the first row as a dict."""
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        cursor.execute(sql, params)
+        return cursor.fetchone()
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def execute(sql, params=()):
+    """Run a write against the test DB."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(sql, params)
+        conn.commit()
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def redirects_to(response, path):
+    """True if the response is a redirect to the given path."""
+    return response.status_code == 302 and response.location.endswith(path)
+
+
+def take_and_submit_quiz(client, answers):
+    """Answer topic 1's questions in order and submit on the last one.
+    `answers` is a list like ['B', 'A', 'C']. Returns the attempt ID."""
+    client.get('/quiz/1?q=0')
+    attempt_id = current_attempt_id(client)
+    for i, option in enumerate(answers):
+        action = 'submit' if i == len(answers) - 1 else 'next'
+        client.post(f'/quiz/1?q={i}', data={'option': option, 'action': action})
+    return attempt_id
+
+
+# ---------------------------------------------------------------------------
+# Pages and login guards
+# ---------------------------------------------------------------------------
+
 def test_home_page(client):
     response = client.get('/')
     assert response.status_code == 200
     assert b"Math" in response.data or b"Welcome" in response.data
 
-# Test 2: Login with Incorrect Password
-def test_login_wrong_password(client):
-    # Use the 'testuser' that is inserted by the db_cleanup fixture
-    response = client.post('/login', data={
-        'username': 'testuser',
-        'password': 'wrongpassword'
-    }, follow_redirects=True)
-    assert b'Invalid username or password' in response.data
 
-# Test 3: Signup with Duplicate Email
-def test_signup_duplicate_email(client):
-    # This test relies on 'nikhil.vankayala7@gmail.com' being pre-inserted by db_cleanup
+@pytest.mark.parametrize('url', ['/dashboard', '/topics/10', '/quiz/1', '/result/1', '/attempts/1'])
+def test_protected_pages_redirect_to_login(client, url):
+    # Checks the redirect itself, not just that the word "Login" appears somewhere
+    response = client.get(url)
+    assert redirects_to(response, '/login')
+
+
+# ---------------------------------------------------------------------------
+# Auth
+# ---------------------------------------------------------------------------
+
+def test_signup_then_login_reaches_dashboard(client):
+    # Real end-to-end flow: no faked session
     response = client.post('/signup', data={
-        'name': 'New Test User',
-        'username': 'newuniqueuser123', # Use a username that won't conflict with 'testuser' or 'existinguser'
-        'email': 'nikhil.vankayala7@gmail.com',  # This email is pre-existing due to db_cleanup
-        'password': 'password123',
-        'grade_level': '10',
-        'phone_number': '1234567890'
-    }, follow_redirects=True)
-    # Check for the error message. If your app redirects to login,
-    # the message might be a flashed message on the login page, or the signup page
-    # needs to be re-rendered with the error. Adjust this assertion if needed.
-    assert b'Email is already registered' in response.data or b'Login' in response.data
+        'name': 'New Student', 'username': 'newstudent', 'email': 'new@example.com',
+        'password': 'secret123', 'grade_level': '10', 'phone_number': '5550001111'
+    })
+    assert redirects_to(response, '/login')
 
-# Test 4: Dashboard Requires Login
-def test_dashboard_requires_login(client):
-    response = client.get('/dashboard', follow_redirects=True)
-    assert b'Login' in response.data
+    response = client.post('/login', data={'username': 'newstudent', 'password': 'secret123'},
+                           follow_redirects=True)
+    assert response.request.path == '/dashboard'
+    assert b'newstudent' in response.data
 
-# Test 5: Quiz Route Requires Login
-def test_quiz_route_requires_login(client):
-    response = client.get('/quiz/1', follow_redirects=True)
-    assert b'Login' in response.data
 
-# Test 6: Topics Page with Simulated Login
-def test_topics_view_with_login(client):
+def test_signup_stores_hashed_password(client):
+    client.post('/signup', data={
+        'name': 'Hash Check', 'username': 'hashcheck', 'email': 'hash@example.com',
+        'password': 'secret123', 'grade_level': '10', 'phone_number': '5550002222'
+    })
+    user = query_one("SELECT password FROM users WHERE username = %s", ('hashcheck',))
+    assert user['password'] != 'secret123'                       # not stored as plain text
+    assert check_password_hash(user['password'], 'secret123')    # but still verifies
+
+
+def test_login_wrong_password(client):
+    client.post('/signup', data={
+        'name': 'Real User', 'username': 'realuser', 'email': 'real@example.com',
+        'password': 'rightpass', 'grade_level': '10', 'phone_number': '5550003333'
+    })
+    response = client.post('/login', data={'username': 'realuser', 'password': 'wrongpass'},
+                           follow_redirects=True)
+    assert b'Invalid username or password' in response.data
     with client.session_transaction() as sess:
-        sess['user_id'] = 1 # User ID 1 is inserted by db_cleanup
-        sess['grade_level'] = 10
-    response = client.get('/topics/10') # Topic ID 10 is inserted by db_cleanup
-    assert response.status_code == 200
+        assert 'user_id' not in sess
 
-# Test 7: Logout Clears Session
-def test_logout(client):
-    with client.session_transaction() as sess:
-        sess['user_id'] = 1
+
+def test_signup_duplicate_email_rejected(client):
+    response = client.post('/signup', data={
+        'name': 'Dup Email', 'username': 'dupemail', 'email': 'existing@example.com',
+        'password': 'password123', 'grade_level': '10', 'phone_number': '5550004444'
+    })
+    assert redirects_to(response, '/signup')
+    assert query_one("SELECT id FROM users WHERE username = %s", ('dupemail',)) is None
+
+
+def test_signup_duplicate_username_rejected(client):
+    response = client.post('/signup', data={
+        'name': 'Dup Username', 'username': 'existinguser', 'email': 'other@example.com',
+        'password': 'password123', 'grade_level': '10', 'phone_number': '5550005555'
+    })
+    assert redirects_to(response, '/signup')
+    count = query_one("SELECT COUNT(*) AS n FROM users WHERE username = %s", ('existinguser',))
+    assert count['n'] == 1
+
+
+def test_logout_clears_session(client):
+    login_as(client)
     response = client.get('/logout', follow_redirects=True)
     assert b'You have been signed out' in response.data
+    # The real proof: protected pages are locked again
+    assert redirects_to(client.get('/dashboard'), '/login')
 
-def test_start_new_quiz(client):
-    with client.session_transaction() as sess:
-        sess['user_id'] = 1
-        sess['grade_level'] = 10
-    # Topic ID 1 has questions inserted by db_cleanup
+
+# ---------------------------------------------------------------------------
+# Topics
+# ---------------------------------------------------------------------------
+
+def test_topics_page_lists_grade_topics(client):
+    login_as(client)
+    response = client.get('/topics/10')
+    assert response.status_code == 200
+    assert b'Algebra Basics' in response.data
+    assert b'Advanced Algebra' in response.data
+
+
+# ---------------------------------------------------------------------------
+# Quiz flow
+# ---------------------------------------------------------------------------
+
+def test_start_quiz_shows_first_question(client):
+    login_as(client)
     response = client.get('/quiz/1?q=0')
     assert response.status_code == 200
-    assert b'Q1' in response.data or b'question' in response.data.lower()
+    assert b'What is 2+2?' in response.data
 
-def test_answer_question_and_next(client):
-    with client.session_transaction() as sess:
-        sess['user_id'] = 1
-        sess['grade_level'] = 10
-    # Start quiz to initialize quiz_result_id
+
+def test_next_shows_second_question(client):
+    login_as(client)
     client.get('/quiz/1?q=0')
+    response = client.post('/quiz/1?q=0', data={'option': 'B', 'action': 'next'},
+                           follow_redirects=True)
+    assert b'What is 5-3?' in response.data
 
-    # Simulate answering the first question (Q1)
-    response = client.post('/quiz/1?q=0', data={
-        'option': 'B', # Assuming 'B' is the correct option for Q1 (2+2=4)
-        'action': 'next'
-    }, follow_redirects=True)
 
-    # Expect to see Q2
-    assert b'Q2' in response.data or b'question' in response.data.lower()
-
-def test_prev_question(client):
-    with client.session_transaction() as sess:
-        sess['user_id'] = 1
-        sess['grade_level'] = 10
-    # Go to second question (Q2)
+def test_prev_shows_first_question(client):
+    login_as(client)
     client.get('/quiz/1?q=1')
-    # Simulate going back to Q1
-    response = client.post('/quiz/1?q=1', data={
-        'option': 'B', # Answer for Q2 (not strictly needed for 'prev' action)
-        'action': 'prev'
-    }, follow_redirects=True)
-    assert b'Q1' in response.data or b'question' in response.data.lower()
+    response = client.post('/quiz/1?q=1', data={'option': 'B', 'action': 'prev'},
+                           follow_redirects=True)
+    assert b'What is 2+2?' in response.data
 
-def test_submit_quiz(client):
-    with client.session_transaction() as sess:
-        sess['user_id'] = 1
-        sess['grade_level'] = 10
-    client.get('/quiz/1?q=0') # Start quiz
 
-    # Simulate answering the last relevant question (Q3) and submitting
-    response = client.post('/quiz/1?q=2', data={ # q=2 corresponds to the 3rd question (id=3)
-        'option': 'C', # Assuming 'C' is correct for Q3 (6*2=12)
-        'action': 'submit'
-    }, follow_redirects=True)
-
-    assert b'Results' in response.data or b'Score' in response.data
-
-def test_retake_quiz_starts_new_attempt(client):
-    # Simulate login
-    with client.session_transaction() as sess:
-        sess['user_id'] = 1
-        sess['grade_level'] = 10
-
-    # First quiz attempt
+def test_skipped_question_saved_as_incorrect(client):
+    login_as(client)
     client.get('/quiz/1?q=0')
-    with client.session_transaction() as sess:
-        first_id = sess.get('quiz_result_id')
+    attempt_id = current_attempt_id(client)
+    response = client.post('/quiz/1?q=0', data={'action': 'next'}, follow_redirects=True)
+    assert response.status_code == 200
 
-    # Clear session to simulate fresh attempt (as if user navigated away and came back)
-    with client.session_transaction() as sess:
-        sess.pop('quiz_result_id', None)
+    row = query_one("SELECT user_option, is_correct FROM question_result WHERE quiz_result_id = %s",
+                    (attempt_id,))
+    assert row['user_option'] is None
+    assert row['is_correct'] == 0
 
-    # Second quiz attempt for the same topic
+
+def test_changing_an_answer_updates_instead_of_duplicating(client):
+    login_as(client)
     client.get('/quiz/1?q=0')
-    with client.session_transaction() as sess:
-        second_id = sess.get('quiz_result_id')
+    attempt_id = current_attempt_id(client)
+    client.post('/quiz/1?q=0', data={'option': 'A', 'action': 'next'})
+    client.post('/quiz/1?q=0', data={'option': 'B', 'action': 'next'})   # go back and change it
 
-    # Assert a new quiz_result_id was created
-    assert first_id != second_id
+    count = query_one("SELECT COUNT(*) AS n FROM question_result WHERE quiz_result_id = %s",
+                      (attempt_id,))
+    assert count['n'] == 1
+    row = query_one("SELECT user_option, is_correct FROM question_result WHERE quiz_result_id = %s",
+                    (attempt_id,))
+    assert row['user_option'] == 'B'
+    assert row['is_correct'] == 1
 
-    # Submit quiz (e.g., answer first question and submit)
-    client.post('/quiz/1?q=0', data={'option': 'B', 'action': 'submit'}, follow_redirects=True)
 
-    # After submission, quiz_result_id should be popped from session.
-    # We use the saved 'second_id' to view results.
-    response = client.get(f'/result/{second_id}', follow_redirects=True)
+def test_topic_with_no_questions_redirects_to_dashboard(client):
+    login_as(client)
+    response = client.get('/quiz/999?q=0')
+    assert redirects_to(response, '/dashboard')
+
+
+def test_invalid_question_index_does_not_crash(client):
+    login_as(client)
+    assert client.get('/quiz/1?q=abc').status_code == 200   # falls back to question 0
+    response = client.get('/quiz/1?q=-1')
+    assert b'What is 2+2?' in response.data                  # not the last question
+
+
+# ---------------------------------------------------------------------------
+# Scoring and submission
+# ---------------------------------------------------------------------------
+
+def test_score_counts_correct_answers(client):
+    login_as(client)
+    attempt_id = take_and_submit_quiz(client, ['B', 'A', 'C'])   # right, wrong, right
+
+    result = query_one("SELECT score, status FROM quiz_results WHERE id = %s", (attempt_id,))
+    assert result['status'] == 'submitted'
+    assert result['score'] == 2
+
+
+def test_submit_redirects_to_results_and_clears_session(client):
+    login_as(client)
+    attempt_id = take_and_submit_quiz(client, ['B', 'B', 'C'])
+    assert current_attempt_id(client) is None
+
+    response = client.get(f'/result/{attempt_id}')
     assert response.status_code == 200
-    assert b'Score' in response.data or b'Results' in response.data
 
-def test_result_requires_login(client):
-    response = client.get('/result/1', follow_redirects=True)
-    assert b'Login' in response.data
 
-def test_result_not_found_redirects(client):
-    with client.session_transaction() as sess:
-        sess['user_id'] = 1
-
-    response = client.get('/result/999999', follow_redirects=True)
-    
-    # Expect redirection to dashboard or an error message indicating not found
-    assert b'<title>Dashboard</title>' in response.data or b'Result not found' in response.data
-
-def test_view_results_page(client):
-    # Simulate login
-    with client.session_transaction() as sess:
-        sess['user_id'] = 1
-        sess['grade_level'] = 10
-
-    # Start quiz (creates quiz_result_id)
+def test_time_taken_is_real_seconds(client):
+    # Regression test: NOW() - creation_time used to subtract dates as plain numbers,
+    # so a 90-second attempt could be stored as 130 or more.
+    login_as(client)
     client.get('/quiz/1?q=0')
-    with client.session_transaction() as sess:
-        quiz_result_id = sess.get('quiz_result_id')
+    attempt_id = current_attempt_id(client)
+    execute("UPDATE quiz_results SET creation_time = NOW() - INTERVAL 90 SECOND WHERE id = %s",
+            (attempt_id,))
 
-    # Simulate answering a question and submitting to complete the quiz
-    client.post('/quiz/1?q=0', data={'option': 'B', 'action': 'submit'}, follow_redirects=True)
+    client.post('/quiz/1?q=0', data={'option': 'B', 'action': 'submit'})
 
-    # Now quiz_result_id should be cleared from session, but we use the saved ID
-    response = client.get(f'/result/{quiz_result_id}', follow_redirects=True)
+    result = query_one("SELECT time_taken FROM quiz_results WHERE id = %s", (attempt_id,))
+    assert 89 <= result['time_taken'] <= 95
 
+
+# ---------------------------------------------------------------------------
+# Attempts
+# ---------------------------------------------------------------------------
+
+def test_retake_after_submit_starts_new_attempt(client):
+    login_as(client)
+    first_id = take_and_submit_quiz(client, ['B', 'B', 'C'])
+    client.get('/quiz/1?q=0')
+    second_id = current_attempt_id(client)
+    assert second_id is not None
+    assert second_id != first_id
+
+
+def test_switching_topics_starts_new_attempt(client):
+    # Regression test: the session's attempt used to be reused for a different topic
+    login_as(client)
+    client.get('/quiz/1?q=0')
+    topic1_attempt = current_attempt_id(client)
+    client.post('/quiz/1?q=0', data={'option': 'B', 'action': 'next'})
+
+    response = client.get('/quiz/10?q=0')
+    topic10_attempt = current_attempt_id(client)
+    assert topic10_attempt != topic1_attempt
+    assert b'What is 3^2?' in response.data
+
+    client.post('/quiz/10?q=0', data={'option': 'B', 'action': 'next'})
+    # Topic 1's attempt still has only its own single answer
+    count = query_one("SELECT COUNT(*) AS n FROM question_result WHERE quiz_result_id = %s",
+                      (topic1_attempt,))
+    assert count['n'] == 1
+
+
+# ---------------------------------------------------------------------------
+# Results and access control
+# ---------------------------------------------------------------------------
+
+def test_owner_can_view_result(client):
+    login_as(client, user_id=1)
+    attempt_id = take_and_submit_quiz(client, ['B', 'B', 'C'])
+    response = client.get(f'/result/{attempt_id}')
     assert response.status_code == 200
-    assert b'Score' in response.data or b'Results' in response.data
+    assert b'What is 2+2?' in response.data
 
-# Test 1: Redirects to login if user not logged in
-def test_past_attempts_requires_login(client):
-    response = client.get('/attempts/1', follow_redirects=True)
-    assert b'Login' in response.data
 
-# Test 2: Loads past attempts for a logged-in user with topic_id = 1
-def test_past_attempts_page_with_attempts(client):
-    with client.session_transaction() as sess:
-        sess['user_id'] = 1
-        sess['grade_level'] = 10
+def test_other_user_cannot_view_result(client):
+    # Regression test for the IDOR fix: the result EXISTS but belongs to user 1
+    login_as(client, user_id=1)
+    attempt_id = take_and_submit_quiz(client, ['B', 'B', 'C'])
 
-    response = client.get('/attempts/1') # Topic ID 1 has questions and can have attempts
+    login_as(client, user_id=2)
+    response = client.get(f'/result/{attempt_id}')
+    assert redirects_to(response, '/dashboard')
+    assert b'What is 2+2?' not in response.data
+
+
+def test_missing_result_redirects(client):
+    login_as(client)
+    assert redirects_to(client.get('/result/999999'), '/dashboard')
+
+
+def test_in_progress_result_not_shown(client):
+    login_as(client)
+    client.get('/quiz/1?q=0')
+    attempt_id = current_attempt_id(client)
+    assert redirects_to(client.get(f'/result/{attempt_id}'), '/dashboard')
+
+
+# ---------------------------------------------------------------------------
+# Past attempts
+# ---------------------------------------------------------------------------
+
+def test_past_attempts_shows_submitted_attempt(client):
+    login_as(client)
+    take_and_submit_quiz(client, ['B', 'B', 'C'])
+    response = client.get('/attempts/1')
     assert response.status_code == 200
-    assert b'Attempt' in response.data or b'Score' in response.data
+    assert b'What is 2+2?' in response.data
 
-# Test 3: No attempts for valid topic_id
-def test_past_attempts_no_data(client):
-    with client.session_transaction() as sess:
-        sess['user_id'] = 1
-        sess['grade_level'] = 10
 
-    # Topic ID 999 is created by db_cleanup but has no associated quizzes/attempts initially
+def test_past_attempts_empty_topic(client):
+    login_as(client)
     response = client.get('/attempts/999')
     assert response.status_code == 200
     assert b"You haven't taken this quiz yet." in response.data
 
-def test_invalid_quiz_id(client):
-    with client.session_transaction() as sess:
-        sess['user_id'] = 1
-        sess['grade_level'] = 10
 
-    # Topic ID 999 exists due to db_cleanup, but no questions are associated with it.
-    # The app should handle this gracefully, e.g., redirect to dashboard or show a message.
-    response = client.get('/quiz/999?q=0', follow_redirects=True)
-    assert response.status_code in [200, 302]
-    # Check for messages indicating no questions or redirection to dashboard
-    assert b'completed all questions' in response.data or b'Dashboard' in response.data or b'No questions found' in response.data
-
-
-def test_submit_without_selection(client):
-    with client.session_transaction() as sess:
-        sess['user_id'] = 1
-        sess['grade_level'] = 10
-
-    client.get('/quiz/1?q=0') # Start quiz
-    # Submit without selecting an option
-    response = client.post('/quiz/1?q=0', data={'action': 'next'}, follow_redirects=True)
-    assert response.status_code == 200 # Should still be on the quiz page or next question
-
-def test_results_other_user_forbidden(client):
-    with client.session_transaction() as sess:
-        sess['user_id'] = 9999  # A user ID that is guaranteed not to own result_id=1
-        sess['grade_level'] = 10
-
-    response = client.get('/result/1', follow_redirects=True)
-    # Expect either a "Result not found" message or a redirection (e.g., to dashboard/login)
-    assert b"Result not found" in response.data or response.status_code in [403, 200]
-
-def test_signup_duplicate_username(client):
-    # db_cleanup ensures a clean state before this test.
-    # First, register a user with a given username
-    response1 = client.post('/signup', data={
-        'name': 'First User',
-        'username': 'duplicateuser123',
-        'email': 'first.unique@example.com', # Ensure this email is unique for this test run
-        'password': 'password123',
-        'grade_level': '10',
-        'phone_number': '1234567890'
-    }, follow_redirects=True)
-    assert b'Successfully signed up' in response1.data or response1.status_code == 200
-
-    # Now try registering again with the same username but a different unique email
-    response2 = client.post('/signup', data={
-        'name': 'Second User',
-        'username': 'duplicateuser123',  # Same username
-        'email': 'second.unique@example.com', # Different email
-        'password': 'password123',
-        'grade_level': '10',
-        'phone_number': '0987654321'
-    }, follow_redirects=True)
-
-    # Expect the "Username is already taken" message
-    assert b'Username is already taken' in response2.data or b'already exists' in response2.data
+def test_past_attempts_unknown_topic_redirects(client):
+    login_as(client)
+    assert redirects_to(client.get('/attempts/123456'), '/dashboard')
