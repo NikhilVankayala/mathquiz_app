@@ -154,3 +154,19 @@ Separates long-lived, cheap CI/CD infrastructure from the costly application sta
 - 32 pytest tests covering login guards, signup and login, the quiz flow, scoring, access control, and past attempts, including regression tests for previously fixed bugs (time calculation, topic switching, result ownership).
 - A fixture resets the test database to a known state before every test.
 - Tests always run against a separate `mathquiz_test` database: a disposable MySQL container in CI, and a local test database (set in `conftest.py`) during development, so local data is never touched.
+
+- ## 10. Known Limitations and Next Steps
+ 
+| Area | Limitation | Next step |
+|---|---|---|
+| IAM | The CloudFormation deploy role uses broad managed policies (PowerUserAccess + IAMFullAccess). | Restrict to the services the template uses and add a permissions boundary. |
+| Secrets | The Flask secret key is supplied as a pipeline parameter and is visible in the pipeline's configuration. | Generate it inside the app template with Secrets Manager. |
+| Transport | Connections from the Lambda to RDS Proxy don't require TLS (traffic stays inside the VPC). | Enable `RequireTLS` and TLS in the database client. |
+| Database user | The app connects as the Aurora master user. | Create a dedicated application user with limited privileges. |
+| Timing | Time spent per question isn't recorded; only total attempt time is accurate. | Store elapsed time when each answer is saved. |
+| Cold start | First-run seeding can approach the 30-second API Gateway limit. | Move seeding out of the request path. |
+| Testing | Tests run on the build machine rather than inside the shipped container image. | Run the test suite inside the built image. |
+| Housekeeping | No lifecycle rules for ECR images, pipeline artifacts, or logs; Aurora leaves a final snapshot on stack deletion. | Add lifecycle and retention policies; set the deletion policy explicitly. |
+| Availability | Single Aurora instance with no replica. | Add a reader instance if uptime matters. |
+| Features | The `quizzes.time_limit` column and paused-attempt status exist in the schema but aren't used. | Implement or remove. |
+ 
