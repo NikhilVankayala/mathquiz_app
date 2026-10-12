@@ -73,7 +73,7 @@ sequenceDiagram
     participant D as Database
 
     B->>F: GET /quiz/3?q=0
-    F->>D: Find or create quiz; start attempt (in_progress)
+    F->>D: Find or create quiz, start attempt (in_progress)
     F->>D: Load topic's questions
     F-->>B: Question 1 + time left (180s per question)
     B->>F: POST answer, action=next
@@ -82,7 +82,7 @@ sequenceDiagram
     Note over B,F: Repeat for each question
     B->>F: POST last answer, action=submit
     F->>D: Count correct answers, save score and time, mark submitted
-    F-->>B: Redirect to /result/<id>
+    F-->>B: Redirect to /result/{id}
 ```
 
 - **Login state** is a user ID stored in Flask's signed session cookie. The signature (made with the secret key from Secrets Manager) prevents tampering.
@@ -155,8 +155,8 @@ Separates long-lived, cheap CI/CD infrastructure from the costly application sta
 - A fixture resets the test database to a known state before every test.
 - Tests always run against a separate `mathquiz_test` database: a disposable MySQL container in CI, and a local test database (set in `conftest.py`) during development, so local data is never touched.
 
-- ## 10. Known Limitations and Next Steps
- 
+## 10. Known Limitations and Next Steps
+
 | Area | Limitation | Next step |
 |---|---|---|
 | IAM | The CloudFormation deploy role uses broad managed policies (PowerUserAccess + IAMFullAccess). | Restrict to the services the template uses and add a permissions boundary. |
@@ -169,4 +169,3 @@ Separates long-lived, cheap CI/CD infrastructure from the costly application sta
 | Housekeeping | No lifecycle rules for ECR images, pipeline artifacts, or logs; Aurora leaves a final snapshot on stack deletion. | Add lifecycle and retention policies; set the deletion policy explicitly. |
 | Availability | Single Aurora instance with no replica. | Add a reader instance if uptime matters. |
 | Features | The `quizzes.time_limit` column and paused-attempt status exist in the schema but aren't used. | Implement or remove. |
- 
