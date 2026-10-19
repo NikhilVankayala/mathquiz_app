@@ -508,3 +508,36 @@ def test_timeout_on_last_question_submits_quiz(client):
     assert redirects_to(response, f'/result/{attempt_id}')
     row = query_one("SELECT status FROM quiz_results WHERE id = %s", (attempt_id,))
     assert row['status'] == 'submitted'
+
+
+# ---------------------------------------------------------------------------
+# Grade-level authorization
+# ---------------------------------------------------------------------------
+
+def test_own_grade_topics_page_loads(client):
+    login_as(client, grade_level=10)
+    response = client.get('/topics/10')
+    assert response.status_code == 200
+    assert b'Algebra Basics' in response.data
+
+
+def test_other_grade_topics_redirects_to_own_grade(client):
+    """Regression: /topics/<grade> used the grade from the URL without
+    comparing it to the student's grade in the session."""
+    login_as(client, grade_level=9)
+    response = client.get('/topics/10')
+    assert redirects_to(response, '/topics/9')
+
+
+def test_other_grade_quiz_redirects(client):
+    login_as(client, grade_level=9)
+    response = client.get('/quiz/1?q=0')
+    assert redirects_to(response, '/topics/9')
+    row = query_one("SELECT COUNT(*) AS n FROM quizzes WHERE topic_id = 1")
+    assert row['n'] == 0   # no quiz row created by the wrong grade
+
+
+def test_unknown_topic_quiz_redirects(client):
+    login_as(client)
+    response = client.get('/quiz/12345?q=0')
+    assert redirects_to(response, '/dashboard')

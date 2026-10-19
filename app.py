@@ -203,6 +203,12 @@ def topics(grade):
     if 'user_id' not in session:
         return redirect('/login')
 
+    # Authorization: students only browse their own grade. The grade in the
+    # session is signed, so it can't be changed, but it only protects anything
+    # if we compare it against the grade in the URL.
+    if grade != session.get('grade_level'):
+        return redirect(url_for('topics', grade=session.get('grade_level')))
+
     user_id = session['user_id']
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
@@ -267,15 +273,25 @@ def quiz(topic_id):
     cursor = conn.cursor(dictionary=True)
 
     try:
+        cursor.execute("SELECT id, grade_level FROM topics WHERE id = %s", (topic_id,))
+        topic = cursor.fetchone()
+        if not topic:
+            flash("Topic not found.", "danger")
+            return redirect('/dashboard')
+
+        # Same rule as /topics: only quizzes for the student's own grade.
+        if topic['grade_level'] != session.get('grade_level'):
+            return redirect(url_for('topics', grade=session.get('grade_level')))
+
         cursor.execute("SELECT id FROM quizzes WHERE topic_id = %s", (topic_id,))
         quiz = cursor.fetchone()
 
         if not quiz:
-            grade_level = session['grade_level']
+            # The quiz's grade comes from its topic, not from whoever opens it first.
             cursor.execute("""
                 INSERT INTO quizzes (topic_id, grade_level, time_limit)
                 VALUES (%s, %s, %s)
-            """, (topic_id, grade_level, 600))
+            """, (topic_id, topic['grade_level'], 600))
             conn.commit()
             quiz_id = cursor.lastrowid
         else:
