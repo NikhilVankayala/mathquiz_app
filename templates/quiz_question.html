@@ -100,7 +100,11 @@
 
   <!-- Countdown Timer BELOW the navbar -->
   <div id="countdown" style="text-align: center; font-size: 24px; font-weight: bold; color: orange; margin-top: 15px;">
-    Time Left: <span id="time">{{ "%02d:%02d" | format(time_left // 60, time_left % 60) }}</span>
+    {% if expired %}
+      Time's up for this question
+    {% else %}
+      Time Left: <span id="time">{{ "%02d:%02d" | format(time_left // 60, time_left % 60) }}</span>
+    {% endif %}
   </div>
 
   <form method="POST" action="/quiz/{{ topic_id }}?q={{ q_index }}">
@@ -114,37 +118,39 @@
         {% endif %}
       </div>
 
+      {# Once time is up the server ignores new answers, so lock the options too. #}
+      {% set lock = 'disabled' if expired else '' %}
       <div class="options-grid">
         {% if question.option_c == None and question.option_d == None and question.option_a in ['True', 'T'] and question.option_b in ['False', 'F'] %}
           <!-- True/False layout -->
           <label class="option">
-            <input type="radio" name="option" value="T" {% if question.user_option == 'T' %}checked{% endif %}>
+            <input type="radio" name="option" value="T" {% if question.user_option == 'T' %}checked{% endif %} {{ lock }}>
             True
           </label>
 
           <label class="option">
-            <input type="radio" name="option" value="F" {% if question.user_option == 'F' %}checked{% endif %}>
+            <input type="radio" name="option" value="F" {% if question.user_option == 'F' %}checked{% endif %} {{ lock }}>
             False
           </label>
         {% else %}
           <!-- Multiple Choice layout -->
           <label class="option">
-            <input type="radio" name="option" value="A" {% if question.user_option == 'A' %}checked{% endif %}>
+            <input type="radio" name="option" value="A" {% if question.user_option == 'A' %}checked{% endif %} {{ lock }}>
             {{ question.option_a }}
           </label>
 
           <label class="option">
-            <input type="radio" name="option" value="B" {% if question.user_option == 'B' %}checked{% endif %}>
+            <input type="radio" name="option" value="B" {% if question.user_option == 'B' %}checked{% endif %} {{ lock }}>
             {{ question.option_b }}
           </label>
 
           <label class="option">
-            <input type="radio" name="option" value="C" {% if question.user_option == 'C' %}checked{% endif %}>
+            <input type="radio" name="option" value="C" {% if question.user_option == 'C' %}checked{% endif %} {{ lock }}>
             {{ question.option_c }}
           </label>
 
           <label class="option">
-            <input type="radio" name="option" value="D" {% if question.user_option == 'D' %}checked{% endif %}>
+            <input type="radio" name="option" value="D" {% if question.user_option == 'D' %}checked{% endif %} {{ lock }}>
             {{ question.option_d }}
           </label>
         {% endif %}
@@ -165,20 +171,46 @@
   </form>
 
   <script>
-    // Parse server-provided value safely for VS Code and JS
-    let totalTime = parseInt("{{ time_left | default(180) | int }}");
+    // The server enforces the time limit; this countdown is only the display.
+    let totalTime = parseInt("{{ time_left | int }}");
+    const expired = "{{ 'true' if expired else 'false' }}" === "true";
+    // On timeout, move forward the same way the buttons do.
+    const timeoutAction = "{{ 'next' if question_number < total_questions - 1 else 'submit' }}";
+
+    function formatTime(secs) {
+      const m = String(Math.floor(secs / 60)).padStart(2, "0");
+      const s = String(secs % 60).padStart(2, "0");
+      return m + ":" + s;
+    }
+
+    function timeUp() {
+      clearInterval(timer);
+      const form = document.forms[0];
+      // form.submit() doesn't send a button's value, so add the action explicitly.
+      const action = document.createElement("input");
+      action.type = "hidden";
+      action.name = "action";
+      action.value = timeoutAction;
+      form.appendChild(action);
+      form.submit();
+    }
 
     function updateTimer() {
-      const timerElement = document.getElementById("time");
       if (totalTime > 0) {
         totalTime--;
-        timerElement.textContent = totalTime;
-      } else {
-        document.forms[0].submit(); // auto-submit when time runs out
+        document.getElementById("time").textContent = formatTime(totalTime);
+      }
+      if (totalTime <= 0) {
+        timeUp();
       }
     }
 
-    setInterval(updateTimer, 1000);
+    // Revisiting an already-expired question: show it, but don't start a countdown
+    // (the old code re-submitted it every second in a loop).
+    let timer = null;
+    if (!expired) {
+      timer = setInterval(updateTimer, 1000);
+    }
   </script>
 
 </body>

@@ -3,6 +3,7 @@ from app import app
 from models.db import get_connection
 from werkzeug.security import check_password_hash
 import mysql.connector
+from datetime import datetime, timedelta, timezone
 
 
 # ---------------------------------------------------------------------------
@@ -122,6 +123,23 @@ def take_and_submit_quiz(client, answers):
         action = 'submit' if i == len(answers) - 1 else 'next'
         client.post(f'/quiz/1?q={i}', data={'option': option, 'action': action})
     return attempt_id
+
+
+def backdate_question(client, q_index, seconds_ago):
+    """Pretend question `q_index` was first shown `seconds_ago` seconds ago,
+    so a test can simulate running out of time without waiting."""
+    started = datetime.now(timezone.utc) - timedelta(seconds=seconds_ago)
+    with client.session_transaction() as sess:
+        times = sess.get('per_question_start_time', {})
+        times[str(q_index)] = started.isoformat()
+        sess['per_question_start_time'] = times
+
+
+def saved_answer(attempt_id, question_id):
+    row = query_one("SELECT user_option FROM question_result "
+                    "WHERE quiz_result_id = %s AND question_id = %s",
+                    (attempt_id, question_id))
+    return row['user_option'] if row else None
 
 
 # ---------------------------------------------------------------------------
@@ -415,3 +433,78 @@ def test_past_attempts_empty_topic(client):
 def test_past_attempts_unknown_topic_redirects(client):
     login_as(client)
     assert redirects_to(client.get('/attempts/123456'), '/dashboard')
+
+
+# ---------------------------------------------------------------------------
+# Per-question time limit (enforced on the server, not just in the browser)
+# ---------------------------------------------------------------------------
+
+def test_answer_within_time_is_saved(client):
+    login_as(client)
+    client.get('/quiz/1?q=0')
+    attempt_id = current_attempt_id(client)
+    backdate_question(client, 0, 60)
+    client.post('/quiz/1?q=0', data={'option': 'B', 'action': 'next'})
+    assert saved_answer(attempt_id, 1) == 'B'
+
+
+def test_answer_within_grace_period_is_saved(client):
+    """The browser auto-submits at 0:00; a few seconds of latency still counts."""
+    login_as(client)
+    client.get('/quiz/1?q=0')
+    attempt_id = current_attempt_id(client)
+    backdate_question(client, 0, 182)
+    client.post('/quiz/1?q=0', data={'option': 'B', 'action': 'next'})
+    assert saved_answer(attempt_id, 1) == 'B'
+
+
+def test_late_answer_is_rejected(client):
+    """Regression: the timer used to be browser-only, so a late POST
+    (e.g. with JavaScript disabled) was accepted."""
+    login_as(client)
+    client.get('/quiz/1?q=0')
+    attempt_id = current_attempt_id(client)
+    backdate_question(client, 0, 200)
+    response = client.post('/quiz/1?q=0', data={'option': 'B', 'action': 'next'})
+    assert redirects_to(response, '/quiz/1?q=1')   # still allowed to move on
+    assert saved_answer(attempt_id, 1) is None      # but the answer didn't count
+
+
+def test_late_change_does_not_overwrite_answer(client):
+    """Going back to an expired question can't change the answer given in time."""
+    login_as(client)
+    client.get('/quiz/1?q=0')
+    attempt_id = current_attempt_id(client)
+    client.post('/quiz/1?q=0', data={'option': 'A', 'action': 'next'})
+    backdate_question(client, 0, 200)
+    client.post('/quiz/1?q=0', data={'option': 'B', 'action': 'next'})
+    assert saved_answer(attempt_id, 1) == 'A'
+
+
+def test_expired_question_renders_locked(client):
+    login_as(client)
+    client.get('/quiz/1?q=0')
+    backdate_question(client, 0, 200)
+    response = client.get('/quiz/1?q=0')
+    assert b"Time's up" in response.data
+    assert b'disabled' in response.data
+
+
+def test_timeout_without_action_moves_to_next_question(client):
+    """Regression: the auto-submit sent no `action`, so the same question
+    re-rendered and re-submitted itself every second."""
+    login_as(client)
+    client.get('/quiz/1?q=0')
+    response = client.post('/quiz/1?q=0', data={'option': 'B'})
+    assert redirects_to(response, '/quiz/1?q=1')
+
+
+def test_timeout_on_last_question_submits_quiz(client):
+    login_as(client)
+    client.get('/quiz/1?q=0')
+    attempt_id = current_attempt_id(client)
+    client.get('/quiz/1?q=2')
+    response = client.post('/quiz/1?q=2', data={'option': 'C'})
+    assert redirects_to(response, f'/result/{attempt_id}')
+    row = query_one("SELECT status FROM quiz_results WHERE id = %s", (attempt_id,))
+    assert row['status'] == 'submitted'

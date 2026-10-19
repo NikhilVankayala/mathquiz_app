@@ -8,6 +8,12 @@ import boto3
 
 app = Flask(__name__)
 
+# Per-question time limit, enforced on the server. The browser countdown is
+# only a display; the server decides whether an answer still counts.
+QUESTION_TIME_LIMIT = 180  # seconds
+# Small allowance for network latency when the browser auto-submits at 0:00.
+TIME_GRACE = 5             # seconds
+
 
 def _load_secret(arn):
     """Fetch a secret string from Secrets Manager (used on AWS)."""
@@ -322,32 +328,43 @@ def quiz(topic_id):
 
         start_time = datetime.fromisoformat(session['per_question_start_time'][str(q_index)])
         elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
-        time_left = max(0, 180 - int(elapsed))
+        time_left = max(0, QUESTION_TIME_LIMIT - int(elapsed))
+        # Server-side enforcement: past the limit (plus grace), answers no longer count.
+        expired = elapsed > QUESTION_TIME_LIMIT + TIME_GRACE
 
         if request.method == 'POST':
-            selected = request.form.get('option')
-            is_correct = selected == current_question['correct_option'] if selected else False
+            # Only save the answer while time remains. A late POST (JavaScript
+            # disabled, a hand-crafted request, or going back to an expired
+            # question) can still navigate, but can't change the answer.
+            if not expired:
+                selected = request.form.get('option')
+                is_correct = selected == current_question['correct_option'] if selected else False
 
-            cursor.execute("""
-                SELECT id FROM question_result
-                WHERE quiz_result_id = %s AND question_id = %s
-            """, (quiz_result_id, current_question['id']))
-            existing = cursor.fetchone()
+                cursor.execute("""
+                    SELECT id FROM question_result
+                    WHERE quiz_result_id = %s AND question_id = %s
+                """, (quiz_result_id, current_question['id']))
+                existing = cursor.fetchone()
 
-            if existing:
-                cursor.execute("""
-                    UPDATE question_result
-                    SET user_option = %s, is_correct = %s
-                    WHERE id = %s
-                """, (selected, is_correct, existing['id']))
-            else:
-                cursor.execute("""
-                    INSERT INTO question_result (quiz_result_id, question_id, user_option, is_correct)
-                    VALUES (%s, %s, %s, %s)
-                """, (quiz_result_id, current_question['id'], selected, is_correct))
-            conn.commit()
+                if existing:
+                    cursor.execute("""
+                        UPDATE question_result
+                        SET user_option = %s, is_correct = %s
+                        WHERE id = %s
+                    """, (selected, is_correct, existing['id']))
+                else:
+                    cursor.execute("""
+                        INSERT INTO question_result (quiz_result_id, question_id, user_option, is_correct)
+                        VALUES (%s, %s, %s, %s)
+                    """, (quiz_result_id, current_question['id'], selected, is_correct))
+                conn.commit()
 
             action = request.form.get('action')
+            if action not in ("next", "prev", "submit"):
+                # No button pressed: treat it as a timeout and move forward,
+                # submitting the quiz if this was the last question.
+                action = "submit" if q_index == len(questions) - 1 else "next"
+
             if action == "next":
                 return redirect(url_for('quiz', topic_id=topic_id, q=q_index + 1))
             elif action == "prev" and q_index > 0:
@@ -379,7 +396,8 @@ def quiz(topic_id):
                                q_index=q_index,
                                total_questions=len(questions),
                                topic_id=topic_id,
-                               time_left=time_left)
+                               time_left=time_left,
+                               expired=expired)
     finally:
         cursor.close()
         conn.close()
