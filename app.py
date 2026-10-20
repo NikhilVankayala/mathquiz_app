@@ -296,29 +296,18 @@ def quiz(topic_id):
         else:
             quiz_id = quiz['id']
 
-        # Find the attempt to continue, in this order:
-        # 1. The attempt saved in this browser's session, if it's still valid.
-        attempt = None
-        quiz_result_id = session.get('quiz_result_id')
-        if quiz_result_id:
-            cursor.execute("""
-                SELECT id FROM quiz_results
-                WHERE id = %s AND user_id = %s AND quiz_id = %s AND status = 'in_progress'
-            """, (quiz_result_id, user_id, quiz_id))
-            attempt = cursor.fetchone()
+        # Continue this student's latest unfinished attempt at this quiz.
+        # The database is the source of truth, so progress survives logging
+        # out or switching devices; the session only remembers the id.
+        cursor.execute("""
+            SELECT id FROM quiz_results
+            WHERE user_id = %s AND quiz_id = %s AND status = 'in_progress'
+            ORDER BY creation_time DESC, id DESC
+            LIMIT 1
+        """, (user_id, quiz_id))
+        attempt = cursor.fetchone()
 
-        # 2. Otherwise, this student's latest unfinished attempt in the database,
-        #    so progress survives logging out or switching devices.
-        if not attempt:
-            cursor.execute("""
-                SELECT id FROM quiz_results
-                WHERE user_id = %s AND quiz_id = %s AND status = 'in_progress'
-                ORDER BY creation_time DESC, id DESC
-                LIMIT 1
-            """, (user_id, quiz_id))
-            attempt = cursor.fetchone()
-
-        # 3. No unfinished attempt anywhere: start a new one.
+        # Reuse it, or start a new attempt if there is none.
         if attempt:
             quiz_result_id = attempt['id']
         else:
