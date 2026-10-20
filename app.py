@@ -1,7 +1,6 @@
 from flask import Flask, render_template, request, redirect, session, flash, url_for
 from werkzeug.security import generate_password_hash, check_password_hash
 from models.db import get_connection
-from datetime import datetime, timezone
 import argparse
 import os, json
 import boto3
@@ -297,24 +296,39 @@ def quiz(topic_id):
         else:
             quiz_id = quiz['id']
 
+        # Find the attempt to continue, in this order:
+        # 1. The attempt saved in this browser's session, if it's still valid.
+        attempt = None
         quiz_result_id = session.get('quiz_result_id')
-        valid_attempt = None
         if quiz_result_id:
             cursor.execute("""
                 SELECT id FROM quiz_results
                 WHERE id = %s AND user_id = %s AND quiz_id = %s AND status = 'in_progress'
             """, (quiz_result_id, user_id, quiz_id))
-            valid_attempt = cursor.fetchone()
+            attempt = cursor.fetchone()
 
-        if not valid_attempt:
+        # 2. Otherwise, this student's latest unfinished attempt in the database,
+        #    so progress survives logging out or switching devices.
+        if not attempt:
+            cursor.execute("""
+                SELECT id FROM quiz_results
+                WHERE user_id = %s AND quiz_id = %s AND status = 'in_progress'
+                ORDER BY creation_time DESC, id DESC
+                LIMIT 1
+            """, (user_id, quiz_id))
+            attempt = cursor.fetchone()
+
+        # 3. No unfinished attempt anywhere: start a new one.
+        if attempt:
+            quiz_result_id = attempt['id']
+        else:
             cursor.execute("""
                 INSERT INTO quiz_results (user_id, quiz_id, status)
                 VALUES (%s, %s, 'in_progress')
             """, (user_id, quiz_id))
             conn.commit()
             quiz_result_id = cursor.lastrowid
-            session['quiz_result_id'] = quiz_result_id
-            session['per_question_start_time'] = {}
+        session['quiz_result_id'] = quiz_result_id
 
         # FIX (small): ORDER BY makes question order reliable between requests
         cursor.execute("SELECT * FROM questions WHERE topic_id = %s ORDER BY id", (topic_id,))
@@ -326,24 +340,30 @@ def quiz(topic_id):
 
         current_question = questions[q_index]
 
+        # The first time a question is shown, create its answer row (no answer yet).
+        # Its create_time is the question's start time. Keeping it in the database
+        # instead of the session means switching devices can't reset the timer.
         cursor.execute("""
-            SELECT user_option FROM question_result
+            SELECT id FROM question_result
             WHERE quiz_result_id = %s AND question_id = %s
         """, (quiz_result_id, current_question['id']))
-        existing_answer = cursor.fetchone()
-        current_question['user_option'] = existing_answer['user_option'] if existing_answer else None
+        if not cursor.fetchone():
+            cursor.execute("""
+                INSERT INTO question_result (quiz_result_id, question_id, user_option, is_correct)
+                VALUES (%s, %s, NULL, FALSE)
+            """, (quiz_result_id, current_question['id']))
+            conn.commit()
 
-        if 'per_question_start_time' not in session:
-            session['per_question_start_time'] = {}
+        # Both timestamps come from the database clock, so they always agree.
+        cursor.execute("""
+            SELECT user_option, TIMESTAMPDIFF(SECOND, create_time, NOW()) AS elapsed
+            FROM question_result
+            WHERE quiz_result_id = %s AND question_id = %s
+        """, (quiz_result_id, current_question['id']))
+        answer_row = cursor.fetchone()
+        current_question['user_option'] = answer_row['user_option']
 
-        if str(q_index) not in session['per_question_start_time']:
-            session['per_question_start_time'][str(q_index)] = datetime.now(timezone.utc).isoformat()
-            # FIX #4: Flask doesn't notice changes inside a nested dict,
-            # so tell it explicitly that the session needs saving.
-            session.modified = True
-
-        start_time = datetime.fromisoformat(session['per_question_start_time'][str(q_index)])
-        elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
+        elapsed = answer_row['elapsed'] or 0
         time_left = max(0, QUESTION_TIME_LIMIT - int(elapsed))
         # Server-side enforcement: past the limit (plus grace), answers no longer count.
         expired = elapsed > QUESTION_TIME_LIMIT + TIME_GRACE
@@ -356,23 +376,12 @@ def quiz(topic_id):
                 selected = request.form.get('option')
                 is_correct = selected == current_question['correct_option'] if selected else False
 
+                # The answer row was created when the question was shown.
                 cursor.execute("""
-                    SELECT id FROM question_result
+                    UPDATE question_result
+                    SET user_option = %s, is_correct = %s
                     WHERE quiz_result_id = %s AND question_id = %s
-                """, (quiz_result_id, current_question['id']))
-                existing = cursor.fetchone()
-
-                if existing:
-                    cursor.execute("""
-                        UPDATE question_result
-                        SET user_option = %s, is_correct = %s
-                        WHERE id = %s
-                    """, (selected, is_correct, existing['id']))
-                else:
-                    cursor.execute("""
-                        INSERT INTO question_result (quiz_result_id, question_id, user_option, is_correct)
-                        VALUES (%s, %s, %s, %s)
-                    """, (quiz_result_id, current_question['id'], selected, is_correct))
+                """, (selected, is_correct, quiz_result_id, current_question['id']))
                 conn.commit()
 
             action = request.form.get('action')
@@ -403,7 +412,6 @@ def quiz(topic_id):
                 """, (score, quiz_result_id))
                 conn.commit()
                 session.pop('quiz_result_id', None)
-                session.pop('per_question_start_time', None)
                 return redirect(url_for('results', result_id=quiz_result_id))
 
         return render_template('quiz_question.html',

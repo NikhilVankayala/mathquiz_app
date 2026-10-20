@@ -91,7 +91,8 @@ def query_one(sql, params=()):
     cursor = conn.cursor(dictionary=True)
     try:
         cursor.execute(sql, params)
-        return cursor.fetchone()
+        rows = cursor.fetchall()   # read every row so the connection closes cleanly
+        return rows[0] if rows else None
     finally:
         cursor.close()
         conn.close()
@@ -126,13 +127,13 @@ def take_and_submit_quiz(client, answers):
 
 
 def backdate_question(client, q_index, seconds_ago):
-    """Pretend question `q_index` was first shown `seconds_ago` seconds ago,
-    so a test can simulate running out of time without waiting."""
-    started = datetime.now(timezone.utc) - timedelta(seconds=seconds_ago)
-    with client.session_transaction() as sess:
-        times = sess.get('per_question_start_time', {})
-        times[str(q_index)] = started.isoformat()
-        sess['per_question_start_time'] = times
+    """Pretend question `q_index` of topic 1 was first shown `seconds_ago` seconds
+    ago, so a test can simulate running out of time without waiting. The start
+    time is the answer row's create_time in the database."""
+    question_id = q_index + 1   # topic 1's questions have ids 1, 2, 3
+    execute("UPDATE question_result SET create_time = NOW() - INTERVAL %s SECOND "
+            "WHERE quiz_result_id = %s AND question_id = %s",
+            (seconds_ago, current_attempt_id(client), question_id))
 
 
 def saved_answer(attempt_id, question_id):
@@ -272,8 +273,8 @@ def test_skipped_question_saved_as_incorrect(client):
     response = client.post('/quiz/1?q=0', data={'action': 'next'}, follow_redirects=True)
     assert response.status_code == 200
 
-    row = query_one("SELECT user_option, is_correct FROM question_result WHERE quiz_result_id = %s",
-                    (attempt_id,))
+    row = query_one("SELECT user_option, is_correct FROM question_result "
+                    "WHERE quiz_result_id = %s AND question_id = 1", (attempt_id,))
     assert row['user_option'] is None
     assert row['is_correct'] == 0
 
@@ -541,3 +542,61 @@ def test_unknown_topic_quiz_redirects(client):
     login_as(client)
     response = client.get('/quiz/12345?q=0')
     assert redirects_to(response, '/dashboard')
+
+
+# ---------------------------------------------------------------------------
+# Resuming an unfinished attempt (logout, new device)
+# ---------------------------------------------------------------------------
+
+def test_progress_resumes_after_logout(client):
+    """Regression: the attempt id lived only in the session, so logging out
+    started a brand-new attempt and the saved answers were lost."""
+    login_as(client)
+    client.get('/quiz/1?q=0')
+    attempt_id = current_attempt_id(client)
+    client.post('/quiz/1?q=0', data={'option': 'B', 'action': 'next'})
+
+    client.get('/logout')
+    login_as(client)
+    client.get('/quiz/1?q=0')
+
+    assert current_attempt_id(client) == attempt_id
+    assert saved_answer(attempt_id, 1) == 'B'
+    row = query_one("SELECT COUNT(*) AS n FROM quiz_results "
+                    "WHERE user_id = 1 AND status = 'in_progress'")
+    assert row['n'] == 1
+
+
+def test_progress_resumes_on_another_device(client):
+    login_as(client)
+    client.get('/quiz/1?q=0')
+    attempt_id = current_attempt_id(client)
+    client.post('/quiz/1?q=0', data={'option': 'B', 'action': 'next'})
+
+    with app.test_client() as phone:          # a second browser, empty session
+        login_as(phone)
+        phone.get('/quiz/1?q=0')
+        assert current_attempt_id(phone) == attempt_id
+
+
+def test_timer_does_not_reset_on_another_device(client):
+    """The start time is in the database, so a new device can't restart the clock."""
+    login_as(client)
+    client.get('/quiz/1?q=0')
+    backdate_question(client, 0, 200)
+
+    with app.test_client() as phone:
+        login_as(phone)
+        response = phone.get('/quiz/1?q=0')
+        assert b"Time's up" in response.data
+
+
+def test_other_users_attempt_is_not_resumed(client):
+    login_as(client, user_id=1)
+    client.get('/quiz/1?q=0')
+    first_attempt = current_attempt_id(client)
+
+    with app.test_client() as other:
+        login_as(other, user_id=2)
+        other.get('/quiz/1?q=0')
+        assert current_attempt_id(other) != first_attempt
